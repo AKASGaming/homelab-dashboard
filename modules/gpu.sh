@@ -723,13 +723,13 @@ gpu_driver_rebuild() {
     step5_logs+=("$(gpu_format_log_line "Running live nvidia-smi query...")")
     gpu_run_manual_step "Step 5/5: Refreshing GPU status and testing nvidia-smi" "${step5_logs[@]}"
     smi_after=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || true)
-    if ui_gpu_is_error_value "${smi_after}"; then
+    if nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null; then
+        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
+        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
+    else
         gpu_rebuild_collect_errors "Step 5/5: nvidia-smi test" "${smi_after}" 1
         step5_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
         step5_logs+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU may still need a reboot")")
-    else
-        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
-        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
     fi
     gpu_run_manual_step "Step 5/5: Refreshing GPU status and testing nvidia-smi" "${step5_logs[@]}"
     sleep 0.5
@@ -781,7 +781,7 @@ gpu_driver_rebuild() {
     lines+=("")
     lines+=("$(ui_color "${COLOR_LABEL}" "nvidia-smi test:")")
     lines+=("  $(ui_truncate "${smi_after:-no response}" 90)")
-    if ! ui_gpu_is_error_value "${smi_after}"; then
+    if nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null; then
         smi_ok=1
         lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ GPU driver responding after rebuild")")
     else

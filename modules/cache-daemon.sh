@@ -235,12 +235,18 @@ EOF
 # GPU metrics (NVIDIA)
 # =============================================================================
 
+cache_gpu_smi_failed() {
+    local output="$1"
+    [[ -z "${output}" ]] && return 0
+    echo "${output}" | grep -qiE 'failed|couldn.t communicate|not find|error|unable|insufficient|no devices|make sure' && return 0
+    return 1
+}
+
 cache_gpu_metric_invalid() {
     local value="$1"
     [[ -z "${value}" || "${value}" == "N/A" || "${value}" == "null" ]] && return 0
-    echo "${value}" | grep -qiE 'nvidia|failed|error|couldn|communicat|driver|not find|unknown|make sure' && return 0
-    echo "${value}" | grep -q '[[:space:]]' && return 0
-    return 1
+    [[ "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]] && return 1
+    return 0
 }
 
 cache_gpu_write_error() {
@@ -280,7 +286,7 @@ cache_collect_gpu() {
     smi_output=$("${gpu_cmd}" --query-gpu=utilization.gpu,temperature.gpu,name,driver_version \
         --format=csv,noheader,nounits 2>&1 | head -1 || true)
 
-    if cache_gpu_metric_invalid "${smi_output}"; then
+    if cache_gpu_smi_failed "${smi_output}"; then
         if echo "${smi_output}" | grep -qi 'couldn.t communicate'; then
             cache_gpu_write_error "NVIDIA driver not communicating"
         elif echo "${smi_output}" | grep -qi 'not found'; then

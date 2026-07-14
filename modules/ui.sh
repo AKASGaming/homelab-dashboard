@@ -411,8 +411,9 @@ ui_gpu_is_error_value() {
     local value="$1"
     [[ "${value}" == "error" ]] && return 0
     [[ -z "${value}" || "${value}" == "N/A" || "${value}" == "null" || "${value}" == "?" ]] && return 0
-    echo "${value}" | grep -qiE 'nvidia|failed|error|couldn|communicat|driver|not find|unknown|make sure' && return 0
-    echo "${value}" | grep -q '[[:space:]]' && return 0
+    [[ "${value}" =~ ^[0-9]+([.][0-9]+)?%?$ ]] && return 1
+    [[ "${value}" =~ ^[0-9]+([.][0-9]+)?C$ ]] && return 1
+    echo "${value}" | grep -qiE 'failed|couldn.t communicate|not find|insufficient|make sure|no devices' && return 0
     return 1
 }
 
