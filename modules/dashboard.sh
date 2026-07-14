@@ -18,16 +18,11 @@ dashboard_main_loop() {
             ui_main_snapshot_load
         fi
         ui_draw_main_screen
-
-        ui_tty_restore
-        printf '\n'
-        ui_color "${COLOR_LABEL}" "Choose an option: "
-        ui_reset_attrs
-        read -r choice
-        ui_tty_init
+        ui_prompt_choice "Choose an option: " choice
 
         case "${choice}" in
             q|Q) break ;;
+            b|B) continue ;;
             s|S) screensaver_run ;;
             r|R) ui_main_snapshot_load ;;
             "")

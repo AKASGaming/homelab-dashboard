@@ -22,7 +22,8 @@ gpu_module_menu() {
     while true; do
         ui_numbered_menu "GPU" "${items[@]}"
         case "${UI_MENU_RESULT}" in
-            back|refresh) continue ;;
+            back) return 0 ;;
+            refresh) continue ;;
             quit) UI_RUNNING=0; return 0 ;;
             select)
                 case "${UI_MENU_INDEX}" in
@@ -203,7 +204,8 @@ gpu_maintenance_menu() {
     while true; do
         ui_numbered_menu "GPU - Maintenance" "${items[@]}"
         case "${UI_MENU_RESULT}" in
-            back|refresh) return ;;
+            back) return ;;
+            refresh) continue ;;
             quit) UI_RUNNING=0; return ;;
             select)
                 case "${UI_MENU_INDEX}" in

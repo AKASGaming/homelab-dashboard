@@ -21,7 +21,8 @@ media_module_menu() {
     while true; do
         ui_numbered_menu "Media" "${items[@]}"
         case "${UI_MENU_RESULT}" in
-            back|refresh) continue ;;
+            back) return 0 ;;
+            refresh) continue ;;
             quit) UI_RUNNING=0; return 0 ;;
             select)
                 case "${UI_MENU_INDEX}" in

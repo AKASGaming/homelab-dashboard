@@ -284,15 +284,15 @@ ui_draw_hline() {
     local width="$1"
     local char="${2:-─}"
     ui_color "${COLOR_BORDER}" "$(ui_repeat_char "${char}" "${width}")"
-    printf '\n'
+    ui_reset_attrs
 }
 
 ui_draw_box_top() {
     local width="$1"
     ui_color "${COLOR_BORDER}" "┌"
     ui_draw_hline $((width - 2)) "─"
-    printf '\033[%sm' "${COLOR_BORDER}"
-    printf '┐\n'
+    ui_color "${COLOR_BORDER}" "┐"
+    printf '\n'
     ui_reset_attrs
 }
 
@@ -300,8 +300,8 @@ ui_draw_box_bottom() {
     local width="$1"
     ui_color "${COLOR_BORDER}" "└"
     ui_draw_hline $((width - 2)) "─"
-    printf '\033[%sm' "${COLOR_BORDER}"
-    printf '┘\n'
+    ui_color "${COLOR_BORDER}" "┘"
+    printf '\n'
     ui_reset_attrs
 }
 
@@ -321,9 +321,31 @@ ui_draw_separator() {
     local width="$1"
     ui_color "${COLOR_BORDER}" "├"
     ui_draw_hline $((width - 2)) "─"
-    printf '\033[%sm' "${COLOR_BORDER}"
-    printf '┤\n'
+    ui_color "${COLOR_BORDER}" "┤"
+    printf '\n'
     ui_reset_attrs
+}
+
+ui_sanitize_choice() {
+    local value="$1"
+    value="${value//$'\r'/}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+ui_prompt_choice() {
+    local prompt="${1:-Choose an option: }"
+    local __result_var="$2"
+
+    ui_tty_restore
+    printf '\033[%d;1H' "${UI_ROWS}"
+    printf '\033[2K'
+    ui_color "${COLOR_LABEL}" "${prompt}"
+    ui_reset_attrs
+    read -r "${__result_var}"
+    printf -v "${__result_var}" '%s' "$(ui_sanitize_choice "${!__result_var}")"
+    ui_tty_init
 }
 
 # =============================================================================
@@ -815,7 +837,10 @@ ui_info_screen() {
     ui_draw_box_bottom "${width}"
 
     ui_tty_restore
-    printf '\n'
+    printf '\033[%d;1H' "${UI_ROWS}"
+    printf '\033[2K'
+    ui_color "${COLOR_DIM}" "Press Enter to return"
+    ui_reset_attrs
     read -r _
     ui_tty_init
 }
@@ -832,13 +857,7 @@ ui_numbered_menu() {
             UI_RESIZE_PENDING=0
         fi
         ui_draw_numbered_menu_screen "${title}" "${items[@]}"
-
-        ui_tty_restore
-        printf '\n'
-        ui_color "${COLOR_LABEL}" "Choose an option: "
-        ui_reset_attrs
-        read -r choice
-        ui_tty_init
+        ui_prompt_choice "Choose an option: " choice
 
         case "${choice}" in
             b|B)
@@ -1077,7 +1096,10 @@ ui_message() {
     ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Press Enter to continue...")" "${inner}")"
     ui_draw_box_bottom "${width}"
     ui_tty_restore
-    printf '\n'
+    printf '\033[%d;1H' "${UI_ROWS}"
+    printf '\033[2K'
+    ui_color "${COLOR_DIM}" "Press Enter to continue..."
+    ui_reset_attrs
     read -r _
     ui_tty_init
 }
