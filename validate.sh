@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# validate.sh - Syntax-check all TheaterNAS Control Center scripts
+# validate.sh - Syntax-check TheaterNAS Control Center scripts
 # Run before install or commit: ./validate.sh
 # =============================================================================
 
@@ -11,14 +11,23 @@ cd "${SCRIPT_DIR}"
 
 errors=0
 checked=0
+missing_optional=0
 
 check_file() {
     local file="$1"
+    local required="${2:-1}"
+
     if [[ ! -f "${file}" ]]; then
-        echo "MISSING: ${file}"
-        errors=$((errors + 1))
+        if [[ "${required}" == "1" ]]; then
+            echo "MISSING (required): ${file}"
+            errors=$((errors + 1))
+        else
+            echo "SKIP ${file} (optional, not installed)"
+            missing_optional=$((missing_optional + 1))
+        fi
         return
     fi
+
     if bash -n "${file}" 2>/tmp/homelab-validate.err; then
         echo "OK  ${file}"
     else
@@ -32,12 +41,20 @@ check_file() {
 echo "TheaterNAS Control Center - validation"
 echo ""
 
-for f in main-menu install.sh update.sh uninstall.sh remote-install.sh validate.sh; do
-    check_file "${f}"
+# Required on an installed system
+for f in main-menu install.sh update.sh uninstall.sh validate.sh; do
+    check_file "${f}" 1
+done
+
+# Optional repo/distribution scripts (not required under /opt)
+for f in remote-install.sh fix-update.sh; do
+    check_file "${f}" 0
 done
 
 for f in modules/*.sh; do
-    [[ -f "${f}" ]] && check_file "${f}"
+    if [[ -f "${f}" ]]; then
+        check_file "${f}" 1
+    fi
 done
 
 echo ""

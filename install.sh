@@ -95,6 +95,8 @@ install_files() {
     cp -a "${SCRIPT_DIR}/VERSION" "${INSTALL_DIR}/"
     cp -a "${SCRIPT_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${SCRIPT_DIR}/validate.sh" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp -a "${SCRIPT_DIR}/remote-install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp -a "${SCRIPT_DIR}/fix-update.sh" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${SCRIPT_DIR}/config/"* "${INSTALL_DIR}/config/" 2>/dev/null || true
     cp -a "${SCRIPT_DIR}/themes/"* "${INSTALL_DIR}/themes/"
     cp -a "${SCRIPT_DIR}/modules/"* "${INSTALL_DIR}/modules/"

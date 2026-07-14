@@ -126,6 +126,8 @@ update_files() {
     cp -a "${source_dir}/install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${source_dir}/uninstall.sh" "${INSTALL_DIR}/"
     cp -a "${source_dir}/validate.sh" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp -a "${source_dir}/remote-install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp -a "${source_dir}/fix-update.sh" "${INSTALL_DIR}/" 2>/dev/null || true
 
     safe_install_file "${source_dir}/update.sh" "${INSTALL_DIR}/update.sh"
 
