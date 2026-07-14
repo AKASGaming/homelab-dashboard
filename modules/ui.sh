@@ -1054,6 +1054,7 @@ ui_confirm() {
     local message="$1"
     local width="${UI_COLS}"
     local inner=$((width - 4))
+    local choice
 
     ui_update_size
     ui_clear
@@ -1064,18 +1065,14 @@ ui_confirm() {
     ui_draw_box_line "${width}" "$(ui_center "${message}" "${inner}")"
     ui_draw_box_line "${width}" ""
     ui_draw_separator "${width}"
-    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Y Yes  N No")" "${inner}")"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Type y or n, then press Enter")" "${inner}")"
     ui_draw_box_bottom "${width}"
 
-    local key
-    while true; do
-        ui_read_key >/dev/null
-        key="${UI_LAST_KEY}"
-        case "${key}" in
-            y|Y) return 0 ;;
-            n|N|q|Q|$'\x1b') return 1 ;;
-        esac
-    done
+    ui_prompt_choice "Confirm (y/n): " choice
+    case "${choice}" in
+        y|Y|yes|Yes) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 ui_message() {

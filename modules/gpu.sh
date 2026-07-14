@@ -21,7 +21,7 @@ gpu_append_recovery_guide() {
     _out_lines+=("$(ui_color "${COLOR_STATUS_WARN}" "update-dashboard does NOT update NVIDIA drivers.")")
     _out_lines+=("$(ui_color "${COLOR_DIM}" "After a kernel or system update, run Maintenance in this order:")")
     _out_lines+=("  1) DKMS Status — confirm nvidia module matches kernel $(uname -r)")
-    _out_lines+=("  2) Driver Rebuild Helper — runs dkms autoinstall")
+    _out_lines+=("  2) Driver Rebuild Helper — runs dkms autoinstall + initramfs")
     _out_lines+=("  3) Reboot the server")
     _out_lines+=("  4) Reload NVIDIA Modules — if GPU still errors after reboot")
     _out_lines+=("  5) Verify Docker GPU — if you use GPU containers")
@@ -48,9 +48,31 @@ gpu_capture_command_lines() {
         return 1
     fi
     while IFS= read -r line; do
-        [[ -n "${line}" ]] && _out_lines+=("${line}")
+        [[ -n "${line}" ]] && _out_lines+=("$(ui_truncate "${line}" 100)")
     done <<< "${output}"
     return 0
+}
+
+gpu_show_progress() {
+    local title="$1"
+    local message="$2"
+
+    ui_update_size
+    ui_clear
+    ui_draw_box_top "${UI_COLS}"
+    ui_draw_box_line "${UI_COLS}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((UI_COLS - 4)))"
+    ui_draw_separator "${UI_COLS}"
+    ui_draw_box_line "${UI_COLS}" ""
+    ui_draw_box_line "${UI_COLS}" "$(ui_center "${message}" $((UI_COLS - 4)))"
+    ui_draw_box_line "${UI_COLS}" ""
+    ui_draw_separator "${UI_COLS}"
+    ui_draw_box_bottom "${UI_COLS}"
+}
+
+gpu_refresh_cache() {
+    if [[ -x "${INSTALL_DIR}/modules/cache-daemon.sh" ]]; then
+        "${INSTALL_DIR}/modules/cache-daemon.sh" once >/dev/null 2>&1 || true
+    fi
 }
 
 gpu_module_menu() {
@@ -443,43 +465,106 @@ gpu_dkms_status() {
 }
 
 gpu_driver_rebuild() {
-    local lines=()
-    local rebuild_out
+    local lines=() rebuild_out initramfs_out smi_after kernel confirm
+    local rebuild_ok=0 smi_ok=0
+
+    kernel=$(uname -r)
 
     lines+=("$(ui_section_header "Driver Rebuild Helper")")
-    if gpu_is_error_state; then
-        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU driver not responding")")
-        lines+=("$(ui_color "${COLOR_DIM}" "This is the recommended fix after kernel or system updates.")")
-        lines+=("")
-    fi
-    lines+=("This runs: dkms autoinstall")
-    lines+=("After it completes: update-initramfs -u && reboot")
+    lines+=("$(ui_kv_line "Target kernel" "${kernel}")")
     lines+=("")
+    lines+=("$(ui_color "${COLOR_LABEL}" "This will run:")")
+    lines+=("  1) dkms autoinstall")
+    lines+=("  2) update-initramfs -u")
+    lines+=("  3) Reload NVIDIA kernel modules")
+    lines+=("  4) Refresh GPU cache + test nvidia-smi")
+    lines+=("")
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU is errored now — that is normal before rebuild.")")
+        lines+=("$(ui_color "${COLOR_DIM}" "The dashboard may still show 'error' until you reboot.")")
+    fi
+    lines+=("")
+    lines+=("$(ui_color "${COLOR_DIM}" "Type y and press Enter to start, or n to cancel.")")
+
+    ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
 
     if ! command -v dkms >/dev/null 2>&1; then
-        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "DKMS is not installed — cannot rebuild automatically")")
-        gpu_append_recovery_guide lines
+        lines=()
+        lines+=("$(ui_section_header "Driver Rebuild Failed")")
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "DKMS is not installed")")
+        lines+=("$(ui_color "${COLOR_DIM}" "Install the NVIDIA driver package that provides DKMS, then retry.")")
         ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
         return
     fi
 
-    if ui_confirm "Run dkms autoinstall now? This may take several minutes."; then
-        rebuild_out=$(ui_run_timeout 300 dkms autoinstall 2>&1 | head -30 || echo "dkms autoinstall failed or timed out")
-        lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall output:")")
-        if [[ -n "${rebuild_out}" ]]; then
-            gpu_capture_command_lines lines "${rebuild_out}"
-        else
-            lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
-        fi
-        lines+=("")
-        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "Next: run 'update-initramfs -u' and reboot")")
+    ui_prompt_choice "Start rebuild now? (y/n): " confirm
+    case "${confirm}" in
+        y|Y|yes|Yes) ;;
+        *) return ;;
+    esac
+
+    gpu_show_progress "GPU - Driver Rebuild" "Step 1/4: Running dkms autoinstall (up to 5 minutes)..."
+    rebuild_out=$(ui_run_timeout 300 dkms autoinstall 2>&1 || echo "[exit $?] dkms autoinstall failed or timed out")
+
+    gpu_show_progress "GPU - Driver Rebuild" "Step 2/4: Updating initramfs..."
+    if command -v update-initramfs >/dev/null 2>&1; then
+        initramfs_out=$(update-initramfs -u 2>&1 || echo "[exit $?] update-initramfs failed")
     else
-        lines+=("$(ui_color "${COLOR_DIM}" "Skipped — run manually when ready:")")
-        lines+=("  dkms autoinstall")
-        lines+=("  update-initramfs -u")
-        lines+=("  reboot")
+        initramfs_out="update-initramfs not found — skip manually if needed"
     fi
 
-    gpu_append_recovery_guide lines
+    gpu_show_progress "GPU - Driver Rebuild" "Step 3/4: Reloading NVIDIA kernel modules..."
+    modprobe -r nvidia_uvm nvidia_drm nvidia_modeset nvidia 2>/dev/null || true
+    modprobe nvidia nvidia_modeset nvidia_drm nvidia_uvm 2>/dev/null || true
+
+    gpu_show_progress "GPU - Driver Rebuild" "Step 4/4: Refreshing GPU status..."
+    gpu_refresh_cache
+
+    smi_after=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || true)
+
+    lines=()
+    lines+=("$(ui_section_header "Driver Rebuild Results")")
+    lines+=("$(ui_kv_line "Kernel" "${kernel}")")
+    lines+=("")
+
+    lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall output:")")
+    if gpu_capture_command_lines lines "${rebuild_out}"; then
+        if echo "${rebuild_out}" | grep -qiE 'built|install|already|done'; then
+            rebuild_ok=1
+        fi
+    else
+        lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
+    fi
+
+    lines+=("")
+    lines+=("$(ui_color "${COLOR_LABEL}" "update-initramfs output:")")
+    gpu_capture_command_lines lines "${initramfs_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
+
+    lines+=("")
+    if (( rebuild_ok )); then
+        lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ DKMS autoinstall appears to have completed")")
+    elif echo "${rebuild_out}" | grep -qiE 'error|failed|cannot'; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ DKMS autoinstall reported errors — review output above")")
+    else
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "! DKMS finished — review output above to confirm success")")
+    fi
+
+    lines+=("")
+    lines+=("$(ui_color "${COLOR_LABEL}" "nvidia-smi test:")")
+    lines+=("  $(ui_truncate "${smi_after:-no response}" 90)")
+    if ! ui_gpu_is_error_value "${smi_after}"; then
+        smi_ok=1
+        lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ GPU driver responding after rebuild")")
+    else
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "! nvidia-smi still failing — reboot is usually required")")
+        lines+=("$(ui_color "${COLOR_DIM}" "Run: reboot")")
+        lines+=("$(ui_color "${COLOR_DIM}" "After reboot: GPU > Overview, or press R on main menu")")
+    fi
+
+    if (( ! smi_ok )); then
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_DIM}" "The dashboard GPU error badge is expected until reboot.")")
+    fi
+
     ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
 }
