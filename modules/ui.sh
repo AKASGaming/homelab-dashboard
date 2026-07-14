@@ -22,11 +22,12 @@ UI_RUNNING=1
 
 ui_load_config() {
     local config_file="${1:-${INSTALL_DIR}/config/config.conf}"
+    local saved_install_dir="${INSTALL_DIR}"
     if [[ -f "${config_file}" ]]; then
         # shellcheck source=/dev/null
         source "${config_file}"
     fi
-    INSTALL_DIR="${INSTALL_DIR:-/opt/homelab-dashboard}"
+    INSTALL_DIR="${saved_install_dir:-/opt/homelab-dashboard}"
     CACHE_DIR="${CACHE_DIR:-${INSTALL_DIR}/cache}"
     mkdir -p "${CACHE_DIR}" 2>/dev/null || true
 }
@@ -64,8 +65,8 @@ ui_update_size() {
         UI_ROWS=24
         UI_COLS=80
     fi
-    (( UI_ROWS < 20 )) && UI_ROWS=20
-    (( UI_COLS < 60 )) && UI_COLS=60
+    if (( UI_ROWS < 20 )); then UI_ROWS=20; fi
+    if (( UI_COLS < 60 )); then UI_COLS=60; fi
 }
 
 ui_hide_cursor() {
@@ -195,7 +196,7 @@ ui_center() {
     stripped=$(ui_strip_ansi "${text}")
     len=${#stripped}
     pad=$(( (width - len) / 2 ))
-    (( pad < 0 )) && pad=0
+    if (( pad < 0 )); then pad=0; fi
     printf '%*s%s' "${pad}" '' "${text}"
 }
 
@@ -413,7 +414,7 @@ ui_draw_split_menu() {
 
     # Fill empty menu slots
     local shown=$(( ${#UI_MENU_ITEMS[@]} - start ))
-    (( shown > max_items )) && shown=${max_items}
+    if (( shown > max_items )); then shown=${max_items}; fi
     for ((i = shown; i < max_items; i++)); do
         ui_draw_box_line "${width}" "$(ui_repeat_char ' ' "${menu_width}")$(ui_repeat_char ' ' "${detail_width}")"
     done
@@ -538,7 +539,7 @@ ui_draw_scrollable_subscreen() {
 
     start=${scroll_offset}
     end=$((start + max_lines))
-    (( end > ${#lines[@]} )) && end=${#lines[@]}
+    if (( end > ${#lines[@]} )); then end=${#lines[@]}; fi
 
     ui_update_size
     ui_clear
@@ -777,7 +778,7 @@ ui_progress_bar() {
     local filled empty
     percent=${percent%%.*}
     [[ -z "${percent}" || ! "${percent}" =~ ^[0-9]+$ ]] && percent=0
-    (( percent > 100 )) && percent=100
+    if (( percent > 100 )); then percent=100; fi
     filled=$((percent * width / 100))
     empty=$((width - filled))
     ui_color "${COLOR_STATUS_OK}" "$(ui_repeat_char '█' "${filled}")"

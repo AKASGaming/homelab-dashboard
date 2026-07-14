@@ -3,18 +3,18 @@
 # main-menu - TheaterNAS Control Center entry point
 # =============================================================================
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${SCRIPT_DIR}"
+DASHBOARD_ROOT="${HOMELAB_DASHBOARD_DIR:-${SCRIPT_DIR}}"
 
-# Allow override via environment
-INSTALL_DIR="${HOMELAB_DASHBOARD_DIR:-${INSTALL_DIR}}"
-
-# Source configuration
+# Source configuration (preserve install root — do not let config relocate paths)
 # shellcheck source=/dev/null
-source "${INSTALL_DIR}/config/config.conf"
-INSTALL_DIR="${INSTALL_DIR:-/opt/homelab-dashboard}"
+source "${DASHBOARD_ROOT}/config/config.conf" || {
+    echo "TheaterNAS: failed to load ${DASHBOARD_ROOT}/config/config.conf" >&2
+    exit 1
+}
+INSTALL_DIR="${DASHBOARD_ROOT}"
 CACHE_DIR="${CACHE_DIR:-${INSTALL_DIR}/cache}"
 
 # Source UI framework
@@ -96,6 +96,12 @@ dashboard_main() {
     # Require bash
     if [[ -z "${BASH_VERSION:-}" ]]; then
         echo "TheaterNAS Control Center requires Bash" >&2
+        exit 1
+    fi
+
+    if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        echo "TheaterNAS Control Center requires an interactive terminal (TTY)." >&2
+        echo "Run via SSH with a proper terminal, not from cron or piped input." >&2
         exit 1
     fi
 

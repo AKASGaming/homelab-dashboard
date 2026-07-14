@@ -135,7 +135,7 @@ docker_show_networks() {
             lines+=("${line}")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No network data")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No network data")"); fi
 
     ui_draw_subscreen "Docker - Networks" "${lines[@]}"
     ui_read_key >/dev/null
@@ -152,7 +152,7 @@ docker_show_volumes() {
             lines+=("${line}")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No volume data")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No volume data")"); fi
 
     ui_draw_subscreen "Docker - Volumes" "${lines[@]}"
     ui_read_key >/dev/null
@@ -169,7 +169,7 @@ docker_show_images() {
             lines+=("$(ui_truncate "${line}" 70)")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No image data")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No image data")"); fi
 
     ui_draw_subscreen "Docker - Images" "${lines[@]}"
     ui_read_key >/dev/null
@@ -186,7 +186,7 @@ docker_show_stats() {
             lines+=("$(ui_truncate "${line}" 70)")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No stats data")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No stats data")"); fi
 
     ui_draw_subscreen "Docker - Resource Usage" "${lines[@]}"
     ui_read_key >/dev/null

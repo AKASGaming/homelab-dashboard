@@ -75,6 +75,16 @@ backup_existing() {
 # Install files
 # =============================================================================
 
+strip_crlf() {
+    local target_dir="$1"
+    local f
+    find "${target_dir}" -type f \( -name '*.sh' -o -name 'main-menu' -o -name '*.conf' -o -name '*.theme' -o -name '*.service' \) -print0 |
+        while IFS= read -r -d '' f; do
+            sed -i 's/\r$//' "${f}" 2>/dev/null || true
+        done
+    log_ok "Line endings normalized"
+}
+
 install_files() {
     log_info "Installing to ${INSTALL_DIR}..."
 
@@ -94,6 +104,9 @@ install_files() {
         cp -a "/tmp/homelab-dashboard-config.conf.bak" "${INSTALL_DIR}/config/config.conf"
         log_ok "Previous config restored"
     fi
+
+    # Strip Windows CRLF line endings (breaks shebang on Linux)
+    strip_crlf "${INSTALL_DIR}"
 
     # Set permissions
     chmod +x "${INSTALL_DIR}/main-menu"

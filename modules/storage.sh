@@ -109,7 +109,7 @@ storage_show_temps() {
             lines+=("${line}")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No temperature data")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No temperature data")"); fi
 
     ui_draw_subscreen "Storage - Temperatures" "${lines[@]}"
     ui_read_key >/dev/null
@@ -124,7 +124,7 @@ storage_show_wear() {
             lines+=("${line}")
         done
     fi
-    (( ${#lines[@]} < 2 )) && lines+=("$(ui_color "${COLOR_DIM}" "No wear data (NVMe/SATA SSD only)")")
+    if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No wear data (NVMe/SATA SSD only)")"); fi
 
     ui_draw_subscreen "Storage - SSD Wear" "${lines[@]}"
     ui_read_key >/dev/null
@@ -172,7 +172,7 @@ storage_show_largest() {
         [[ -n "${line}" ]] && lines+=("${line}")
     done <<< "${dirs}"
 
-    (( ${#lines[@]} < 3 )) && lines+=("$(ui_color "${COLOR_DIM}" "No data yet — collected by cache daemon")")
+    if (( ${#lines[@]} < 3 )); then lines+=("$(ui_color "${COLOR_DIM}" "No data yet — collected by cache daemon")"); fi
 
     ui_draw_subscreen "Storage - Largest Folders" "${lines[@]}"
     ui_read_key >/dev/null
