@@ -323,15 +323,28 @@ gpu_show_overview() {
     ui_info_screen "GPU - Overview" "${lines[@]}"
 }
 
+gpu_format_encoder_decoder() {
+    local value="$1"
+    if [[ -z "${value}" || "${value}" == "N/A" ]]; then
+        printf 'N/A'
+    elif [[ "${value}" =~ ^[0-9]+$ ]]; then
+        printf '%s%%' "${value}"
+    else
+        printf '%s' "${value}"
+    fi
+}
+
 gpu_show_utilization() {
     gpu_is_error_state && { gpu_show_error_context "GPU - Utilization"; return; }
-    local lines=()
+    local lines=() enc dec
     lines+=("$(ui_section_header "GPU Utilization")")
     lines+=("$(ui_kv_line "GPU" "$(ui_cache_json gpu.json .utilization)%")")
     lines+=("$(ui_progress_bar "$(ui_cache_json gpu.json .utilization)" 40)")
     lines+=("")
-    lines+=("$(ui_kv_line "Encoder" "$(ui_cache_json gpu.json .encoder)")")
-    lines+=("$(ui_kv_line "Decoder" "$(ui_cache_json gpu.json .decoder)")")
+    enc=$(gpu_format_encoder_decoder "$(ui_cache_json gpu.json .encoder)")
+    dec=$(gpu_format_encoder_decoder "$(ui_cache_json gpu.json .decoder)")
+    lines+=("$(ui_kv_line "Encoder" "${enc}")")
+    lines+=("$(ui_kv_line "Decoder" "${dec}")")
 
     ui_info_screen "GPU - Utilization" "${lines[@]}"
 }
@@ -377,10 +390,12 @@ gpu_show_temp_power() {
 
 gpu_show_encoder() {
     gpu_is_error_state && { gpu_show_error_context "GPU - Encoder/Decoder"; return; }
-    local lines=()
+    local lines=() enc dec
     lines+=("$(ui_section_header "Encoder / Decoder")")
-    lines+=("$(ui_kv_line "Encoder" "$(ui_cache_json gpu.json .encoder)")")
-    lines+=("$(ui_kv_line "Decoder" "$(ui_cache_json gpu.json .decoder)")")
+    enc=$(gpu_format_encoder_decoder "$(ui_cache_json gpu.json .encoder)")
+    dec=$(gpu_format_encoder_decoder "$(ui_cache_json gpu.json .decoder)")
+    lines+=("$(ui_kv_line "Encoder" "${enc}")")
+    lines+=("$(ui_kv_line "Decoder" "${dec}")")
 
     ui_info_screen "GPU - Encoder/Decoder" "${lines[@]}"
 }

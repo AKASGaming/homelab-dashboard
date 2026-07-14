@@ -242,6 +242,26 @@ cache_gpu_smi_failed() {
     return 1
 }
 
+cache_gpu_query_failed() {
+    local output="$1"
+    [[ -z "${output}" ]] && return 0
+    echo "${output}" | grep -qiE 'not a valid field|not supported|failed|error|unknown' && return 0
+    return 1
+}
+
+cache_gpu_optional_query() {
+    local gpu_cmd="$1"
+    local fallback="$2"
+    shift 2
+    local output
+    output=$("${gpu_cmd}" "$@" 2>/dev/null | head -1 || true)
+    if cache_gpu_query_failed "${output}"; then
+        printf '%s' "${fallback}"
+    else
+        printf '%s' "${output}"
+    fi
+}
+
 cache_gpu_metric_invalid() {
     local value="$1"
     [[ -z "${value}" || "${value}" == "N/A" || "${value}" == "null" ]] && return 0
@@ -309,8 +329,8 @@ cache_collect_gpu() {
 
     mem=$("${gpu_cmd}" --query-gpu=utilization.memory,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
     power=$("${gpu_cmd}" --query-gpu=power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
-    encoder=$("${gpu_cmd}" --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
-    decoder=$("${gpu_cmd}" --query-gpu=decoder.stats.sessionCount,decoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
+    encoder=$(cache_gpu_optional_query "${gpu_cmd}" "N/A" --query-gpu=utilization.encoder --format=csv,noheader,nounits)
+    decoder=$(cache_gpu_optional_query "${gpu_cmd}" "N/A" --query-gpu=utilization.decoder --format=csv,noheader,nounits)
     processes=$("${gpu_cmd}" --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader 2>/dev/null | head -20 || echo "")
     full_query=$(cache_run_timeout "${GPU_QUERY_TIMEOUT:-15}" "${gpu_cmd}" -q 2>/dev/null | head -200 || echo "")
 
