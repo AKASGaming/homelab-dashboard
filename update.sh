@@ -18,9 +18,9 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_info()  { echo -e "${CYAN}[INFO]${NC} $*" >&2; }
+log_ok()    { echo -e "${GREEN}[OK]${NC} $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 cleanup() {
@@ -68,10 +68,24 @@ get_source() {
     echo "${TEMP_DIR}"
 }
 
+strip_crlf() {
+    local target_dir="$1"
+    local f
+    find "${target_dir}" -type f \( -name '*.sh' -o -name 'main-menu' -o -name '*.conf' -o -name '*.theme' -o -name '*.service' \) -print0 |
+        while IFS= read -r -d '' f; do
+            sed -i 's/\r$//' "${f}" 2>/dev/null || true
+        done
+}
+
 update_files() {
     local source_dir="$1"
 
-    log_info "Updating files..."
+    log_info "Updating files from ${source_dir}..."
+
+    if [[ ! -f "${source_dir}/main-menu" ]]; then
+        log_error "Invalid source directory: main-menu not found in ${source_dir}"
+        exit 1
+    fi
 
     # Update code files, preserve config and cache
     cp -a "${source_dir}/main-menu" "${INSTALL_DIR}/"
@@ -82,6 +96,8 @@ update_files() {
     cp -a "${source_dir}/install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${source_dir}/update.sh" "${INSTALL_DIR}/"
     cp -a "${source_dir}/uninstall.sh" "${INSTALL_DIR}/"
+
+    strip_crlf "${INSTALL_DIR}"
 
     # Restore config
     if [[ -f "/tmp/homelab-dashboard-config.conf.bak" ]]; then
