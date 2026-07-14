@@ -427,15 +427,13 @@ ui_draw_header() {
 ui_draw_footer() {
     local width="${UI_COLS}"
     local hints
-    hints=$(ui_color "${COLOR_DIM}" "Enter Open")
+    hints=$(ui_color "${COLOR_DIM}" "1-8 Open")
     hints+="  "
     hints+=$(ui_color "${COLOR_DIM}" "Q Quit")
     hints+="  "
     hints+=$(ui_color "${COLOR_DIM}" "R Refresh")
     hints+="  "
     hints+=$(ui_color "${COLOR_DIM}" "S Screensaver")
-    hints+="  "
-    hints+=$(ui_color "${COLOR_DIM}" "↑↓ Navigate")
 
     ui_draw_separator "${width}"
     ui_draw_box_line "${width}" "$(ui_center "${hints}" $((width - 4)))"
@@ -538,18 +536,13 @@ ui_draw_main_details() {
         start=$((UI_MENU_INDEX - max_items + 1))
     fi
 
-    # Redraw with details on right side
+    # Numbered menu (left) + frozen detail panel (right)
     local row=0
     for ((i = start; i < start + max_items && i < ${#UI_MENU_ITEMS[@]}; i++)); do
+        local num=$((i + 1))
         local item="${UI_MENU_ITEMS[$i]}"
-        local prefix="  "
-        local color="${COLOR_MENU_INACTIVE}"
-        if (( i == UI_MENU_INDEX )); then
-            prefix="> "
-            color="${COLOR_MENU_ACTIVE}"
-        fi
         local menu_part
-        menu_part=$(ui_pad_right "$(ui_color "${color}" "${prefix}${item}")" "${menu_width}")
+        menu_part=$(ui_pad_right "$(ui_color "${COLOR_MENU_INACTIVE}" "  ${num}) ${item}")" "${menu_width}")
         local detail_part=""
         if (( row < ${#details[@]} )); then
             detail_part="${details[$row]}"
@@ -686,6 +679,23 @@ ui_draw_scrollable_subscreen() {
 # Input handling
 # =============================================================================
 
+ui_normalize_key() {
+    local k="${UI_LAST_KEY}"
+    case "${k}" in
+        $'\eOA') UI_LAST_KEY=$'\e[A' ;;
+        $'\eOB') UI_LAST_KEY=$'\e[B' ;;
+        $'\eOC') UI_LAST_KEY=$'\e[C' ;;
+        $'\eOD') UI_LAST_KEY=$'\e[D' ;;
+        $'\e['*)
+            if [[ "${k}" =~ \[([0-9]+)\;[0-9]+([ABCD])$ ]]; then
+                UI_LAST_KEY=$'\e['"${BASH_REMATCH[2]}"
+            elif [[ "${k}" =~ \[([ABCD])$ ]]; then
+                UI_LAST_KEY=$'\e['"${BASH_REMATCH[1]}"
+            fi
+            ;;
+    esac
+}
+
 ui_read_key() {
     local key
     IFS= read -rsn1 key 2>/dev/null || key=""
@@ -696,12 +706,15 @@ ui_read_key() {
     if [[ "${key}" == $'\x1b' ]]; then
         local rest=""
         local part
-        while IFS= read -rsn1 -t 0.05 part 2>/dev/null; do
+        while IFS= read -rsn1 -t 0.15 part 2>/dev/null; do
             rest+="${part}"
-            case "${rest}" in
-                '['?|'['?*) break ;;
-            esac
-            if ((${#rest} >= 8)); then
+            if [[ "${rest}" =~ ^\[[0-9\;]*[A-Za-z]$ ]]; then
+                break
+            fi
+            if [[ "${rest}" =~ ^O[A-Za-z]$ ]]; then
+                break
+            fi
+            if ((${#rest} >= 12)); then
                 break
             fi
         done
@@ -710,6 +723,7 @@ ui_read_key() {
         ui_drain_input
     fi
     UI_LAST_KEY="${key}"
+    ui_normalize_key
     return 0
 }
 
@@ -753,6 +767,7 @@ ui_wait_key() {
 }
 
 ui_handle_menu_nav() {
+    ui_normalize_key
     local key="${UI_LAST_KEY}"
     case "${key}" in
         $'\x1b[A'|k|K) # Up
@@ -772,7 +787,7 @@ ui_handle_menu_nav() {
         s|S)
             return 4
             ;;
-        $'\r'|$'\n') # Enter — explicit codes only (not empty string)
+        $'\r'|$'\n') # Enter
             ui_drain_input
             return 10
             ;;

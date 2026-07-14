@@ -6,45 +6,40 @@
 [[ -n "${_DASHBOARD_SH_LOADED:-}" ]] && return 0
 _DASHBOARD_SH_LOADED=1
 
-# =============================================================================
-# dashboard_main_loop - main menu input loop
-# =============================================================================
-
 dashboard_main_loop() {
-    local items action
+    local choice items
 
     read -ra items <<< "$(dashboard_get_menu_items)"
     ui_set_menu_items "${items[@]}"
-
     ui_main_snapshot_load
-    ui_draw_main_screen
 
     while (( UI_RUNNING )); do
-        if ! ui_read_key; then
-            continue
-        fi
+        ui_draw_main_screen
 
-        action="$(ui_main_process_key)"
+        ui_tty_restore
+        printf '\n'
+        ui_color "${COLOR_LABEL}" "Choose an option: "
+        ui_reset_attrs
+        read -r choice
+        ui_tty_init
 
-        case "${action}" in
-            nav)
-                ui_draw_main_screen
+        case "${choice}" in
+            1) dashboard_open_module "${UI_MENU_ITEMS[0]}"; ui_main_snapshot_load ;;
+            2) dashboard_open_module "${UI_MENU_ITEMS[1]}"; ui_main_snapshot_load ;;
+            3) dashboard_open_module "${UI_MENU_ITEMS[2]}"; ui_main_snapshot_load ;;
+            4) dashboard_open_module "${UI_MENU_ITEMS[3]}"; ui_main_snapshot_load ;;
+            5) dashboard_open_module "${UI_MENU_ITEMS[4]}"; ui_main_snapshot_load ;;
+            6) dashboard_open_module "${UI_MENU_ITEMS[5]}"; ui_main_snapshot_load ;;
+            7) dashboard_open_module "${UI_MENU_ITEMS[6]}"; ui_main_snapshot_load ;;
+            8) dashboard_open_module "${UI_MENU_ITEMS[7]}"; ui_main_snapshot_load ;;
+            q|Q) break ;;
+            s|S) screensaver_run ;;
+            r|R) ui_main_snapshot_load ;;
+            "")
+                continue
                 ;;
-            open)
-                dashboard_open_module "${UI_MENU_ITEMS[$UI_MENU_INDEX]}"
-                ui_main_snapshot_load
-                ui_draw_main_screen
-                ;;
-            quit)
-                break
-                ;;
-            refresh)
-                ui_main_snapshot_load
-                ui_draw_main_screen
-                ;;
-            screensaver)
-                screensaver_run
-                ui_draw_main_screen
+            *)
+                ui_message "Menu" "Invalid choice: ${choice}"
                 ;;
         esac
     done

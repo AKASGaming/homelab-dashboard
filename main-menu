@@ -38,8 +38,6 @@ done
 dashboard_init() {
     ui_load_config "${INSTALL_DIR}/config/config.conf"
     ui_load_theme
-    ui_tty_init
-    ui_save_screen
     mkdir -p "${CACHE_DIR}"
 
     # Trap cleanup
