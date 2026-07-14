@@ -40,12 +40,15 @@ dashboard_init() {
     ui_load_theme
     mkdir -p "${CACHE_DIR}"
 
-    # Trap cleanup
-    trap 'ui_cleanup; exit 0' INT TERM EXIT
+    ui_save_screen
+    ui_install_resize_trap
+    trap 'ui_cleanup; exit 130' INT
+    trap 'ui_cleanup; exit 143' TERM
+    trap 'ui_cleanup' EXIT
 }
 
 dashboard_get_menu_items() {
-    local items=("System" "Docker" "Network" "Media" "Storage" "Logs" "Quick Actions" "Settings")
+    local items=("System" "Docker" "Network" "GPU" "Media" "Storage" "Logs" "Quick Actions" "Settings")
     echo "${items[@]}"
 }
 
@@ -55,6 +58,7 @@ dashboard_open_module() {
         System)      system_module_menu ;;
         Docker)      docker_module_menu ;;
         Network)     network_module_menu ;;
+        GPU)         gpu_module_menu ;;
         Media)       media_module_menu ;;
         Storage)     storage_module_menu ;;
         Logs)        logs_module_menu ;;
@@ -76,16 +80,15 @@ dashboard_main() {
         exit 1
     fi
 
-    # Require minimum terminal size
+    # Require minimum terminal size (adapts down to this floor)
     ui_update_size
-    if (( UI_COLS < 60 || UI_ROWS < 20 )); then
-        echo "Terminal too small. Minimum 60x20 required." >&2
+    if (( UI_COLS < 40 || UI_ROWS < 10 )); then
+        echo "Terminal too small. Minimum 40x10 required." >&2
         exit 1
     fi
 
     dashboard_init
     dashboard_main_loop
-    ui_cleanup
 }
 
 dashboard_main "$@"

@@ -21,31 +21,14 @@ docker_module_menu() {
         "GPU Runtime"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "Docker" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) draw_mode="full"; continue ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "Docker" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) docker_show_overview ;;
                     1) docker_show_containers ;;
                     2) docker_show_networks ;;
@@ -87,8 +70,7 @@ docker_show_overview() {
     lines+=("")
     lines+=("$(ui_cache_stale_indicator docker.json)")
 
-    ui_draw_subscreen "Docker - Overview" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Overview" "${lines[@]}"
 }
 
 docker_show_containers() {
@@ -123,8 +105,7 @@ docker_show_containers() {
         lines+=("$(ui_color "${COLOR_DIM}" "No container cache available")")
     fi
 
-    ui_draw_subscreen "Docker - Containers" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Containers" "${lines[@]}"
 }
 
 docker_show_networks() {
@@ -140,8 +121,7 @@ docker_show_networks() {
     fi
     if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No network data")"); fi
 
-    ui_draw_subscreen "Docker - Networks" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Networks" "${lines[@]}"
 }
 
 docker_show_volumes() {
@@ -157,8 +137,7 @@ docker_show_volumes() {
     fi
     if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No volume data")"); fi
 
-    ui_draw_subscreen "Docker - Volumes" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Volumes" "${lines[@]}"
 }
 
 docker_show_images() {
@@ -174,8 +153,7 @@ docker_show_images() {
     fi
     if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No image data")"); fi
 
-    ui_draw_subscreen "Docker - Images" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Images" "${lines[@]}"
 }
 
 docker_show_stats() {
@@ -191,8 +169,7 @@ docker_show_stats() {
     fi
     if (( ${#lines[@]} < 2 )); then lines+=("$(ui_color "${COLOR_DIM}" "No stats data")"); fi
 
-    ui_draw_subscreen "Docker - Resource Usage" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - Resource Usage" "${lines[@]}"
 }
 
 docker_restart_container() {
@@ -254,8 +231,7 @@ docker_view_logs() {
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((offset > 0)) && ((offset--)) || true ;;
             $'\x1b[B'|j|J) ((offset < ${#log_lines[@]} - 1)) && ((offset++)) || true ;;
-            b|B|$'\x1b') return ;;
-            q|Q) return ;;
+            $'\r'|$'\n'|b|B|$'\x1b'|q|Q) return ;;
             r|R)
                 logs=$(ui_run_timeout 30 docker logs --tail "${DOCKER_LOG_LINES:-100}" "${container}" 2>&1)
                 log_lines=()
@@ -285,8 +261,7 @@ docker_show_daemon_json() {
         lines+=("$(ui_color "${COLOR_DIM}" "No daemon.json cache")")
     fi
 
-    ui_draw_subscreen "Docker - daemon.json" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - daemon.json" "${lines[@]}"
 }
 
 docker_show_gpu_runtime() {
@@ -306,6 +281,5 @@ docker_show_gpu_runtime() {
         fi
     fi
 
-    ui_draw_subscreen "Docker - GPU Runtime" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Docker - GPU Runtime" "${lines[@]}"
 }

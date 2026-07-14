@@ -19,31 +19,14 @@ network_module_menu() {
         "Speedtest"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "Network" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) draw_mode="full"; continue ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "Network" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) network_show_overview ;;
                     1) network_show_interfaces ;;
                     2) network_show_routes ;;
@@ -82,8 +65,7 @@ network_show_overview() {
     lines+=("$(ui_kv_line "DNS Latency" "$(ui_cache_json network.json .dns_latency_ms) ms")")
     lines+=("$(ui_kv_line "Tailscale" "$(ui_cache_json tailscale.json .self_ip)")")
 
-    ui_draw_subscreen "Network - Overview" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Overview" "${lines[@]}"
 }
 
 network_show_interfaces() {
@@ -104,8 +86,7 @@ network_show_interfaces() {
         done <<< "${raw}"
     fi
 
-    ui_draw_subscreen "Network - Interfaces" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Interfaces" "${lines[@]}"
 }
 
 network_show_routes() {
@@ -116,8 +97,7 @@ network_show_routes() {
         lines+=("${line}")
     done
 
-    ui_draw_subscreen "Network - Routes" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Routes" "${lines[@]}"
 }
 
 network_show_dns() {
@@ -132,8 +112,7 @@ network_show_dns() {
     lines+=("")
     lines+=("$(ui_kv_line "DNS Latency" "$(ui_cache_json network.json .dns_latency_ms) ms (${DNS_TEST_HOST:-google.com})")")
 
-    ui_draw_subscreen "Network - DNS" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - DNS" "${lines[@]}"
 }
 
 network_show_internet() {
@@ -153,8 +132,7 @@ network_show_internet() {
     lines+=("$(ui_kv_line "WAN IP" "${wan}")")
     lines+=("$(ui_kv_line "Latency" "${ping} ms")")
 
-    ui_draw_subscreen "Network - Internet" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Internet" "${lines[@]}"
 }
 
 network_show_ping() {
@@ -169,8 +147,7 @@ network_show_ping() {
         lines+=("${line}")
     done <<< "${result}"
 
-    ui_draw_subscreen "Network - Ping" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Ping" "${lines[@]}"
 }
 
 network_show_tailscale() {
@@ -187,8 +164,7 @@ network_show_tailscale() {
         lines+=("$(ui_truncate "${line}" 80)")
     done <<< "${status}"
 
-    ui_draw_subscreen "Network - Tailscale" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Tailscale" "${lines[@]}"
 }
 
 network_show_wireguard() {
@@ -217,8 +193,7 @@ network_show_wireguard() {
         lines+=("$(ui_color "${COLOR_DIM}" "WireGuard cache unavailable")")
     fi
 
-    ui_draw_subscreen "Network - WireGuard" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - WireGuard" "${lines[@]}"
 }
 
 network_show_speedtest() {
@@ -257,8 +232,7 @@ network_show_speedtest() {
     lines+=("")
     lines+=("$(ui_color "${COLOR_DIM}" "Press R to trigger a speedtest run")")
 
-    ui_draw_subscreen "Network - Speedtest" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Network - Speedtest" "${lines[@]}"
     if [[ "${UI_LAST_KEY}" == "r" || "${UI_LAST_KEY}" == "R" ]]; then
         if ui_confirm "Run speedtest now? (may take several minutes)"; then
             ui_message "Network" "Running speedtest in background..."

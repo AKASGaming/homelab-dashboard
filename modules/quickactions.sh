@@ -18,30 +18,14 @@ quickactions_module_menu() {
         "Shutdown System"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "Quick Actions" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "Quick Actions" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) quickactions_restart_containers ;;
                     1) quickactions_restart_docker ;;
                     2) quickactions_restart_networking ;;

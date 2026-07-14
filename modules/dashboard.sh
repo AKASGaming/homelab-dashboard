@@ -14,6 +14,9 @@ dashboard_main_loop() {
     ui_main_snapshot_load
 
     while (( UI_RUNNING )); do
+        if (( UI_RESIZE_PENDING )); then
+            ui_main_snapshot_load
+        fi
         ui_draw_main_screen
 
         ui_tty_restore
@@ -24,22 +27,22 @@ dashboard_main_loop() {
         ui_tty_init
 
         case "${choice}" in
-            1) dashboard_open_module "${UI_MENU_ITEMS[0]}"; ui_main_snapshot_load ;;
-            2) dashboard_open_module "${UI_MENU_ITEMS[1]}"; ui_main_snapshot_load ;;
-            3) dashboard_open_module "${UI_MENU_ITEMS[2]}"; ui_main_snapshot_load ;;
-            4) dashboard_open_module "${UI_MENU_ITEMS[3]}"; ui_main_snapshot_load ;;
-            5) dashboard_open_module "${UI_MENU_ITEMS[4]}"; ui_main_snapshot_load ;;
-            6) dashboard_open_module "${UI_MENU_ITEMS[5]}"; ui_main_snapshot_load ;;
-            7) dashboard_open_module "${UI_MENU_ITEMS[6]}"; ui_main_snapshot_load ;;
-            8) dashboard_open_module "${UI_MENU_ITEMS[7]}"; ui_main_snapshot_load ;;
             q|Q) break ;;
             s|S) screensaver_run ;;
             r|R) ui_main_snapshot_load ;;
             "")
                 continue
                 ;;
-            *)
+            *[!0-9]*)
                 ui_message "Menu" "Invalid choice: ${choice}"
+                ;;
+            *)
+                if (( choice >= 1 && choice <= ${#UI_MENU_ITEMS[@]} )); then
+                    dashboard_open_module "${UI_MENU_ITEMS[choice-1]}"
+                    ui_main_snapshot_load
+                else
+                    ui_message "Menu" "Invalid choice: ${choice}"
+                fi
                 ;;
         esac
     done

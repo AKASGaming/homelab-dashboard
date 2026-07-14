@@ -17,31 +17,14 @@ media_module_menu() {
         "Plex Logs"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "Media" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) draw_mode="full"; continue ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "Media" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) media_show_overview ;;
                     1) media_show_pihole_status ;;
                     2) media_show_pihole_stats ;;
@@ -71,8 +54,7 @@ media_show_overview() {
     lines+=("$(ui_kv_line "Pi-hole Blocked" "$(ui_cache_json media.json '.pihole.queries_blocked')")")
     lines+=("$(ui_kv_line "Plex Sessions" "$(ui_cache_json media.json '.plex.sessions')")")
 
-    ui_draw_subscreen "Media - Overview" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Media - Overview" "${lines[@]}"
 }
 
 media_show_pihole_status() {
@@ -92,8 +74,7 @@ media_show_pihole_status() {
     fi
     lines+=("$(ui_kv_line "API Status" "${status}")")
 
-    ui_draw_subscreen "Media - Pi-hole Status" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Media - Pi-hole Status" "${lines[@]}"
 }
 
 media_show_pihole_stats() {
@@ -116,8 +97,7 @@ media_show_pihole_stats() {
         lines+=("$(ui_color "${COLOR_DIM}" "Stats cache unavailable")")
     fi
 
-    ui_draw_subscreen "Media - Pi-hole Stats" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Media - Pi-hole Stats" "${lines[@]}"
 }
 
 media_show_pihole_logs() {
@@ -137,7 +117,7 @@ media_show_pihole_logs() {
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((offset > 0)) && ((offset--)) || true ;;
             $'\x1b[B'|j|J) ((offset < ${#lines[@]} - 1)) && ((offset++)) || true ;;
-            b|B|$'\x1b') return ;;
+            $'\r'|$'\n'|b|B|$'\x1b'|q|Q) return ;;
             r|R)
                 if command -v docker >/dev/null 2>&1; then
                     logs=$(ui_run_timeout 15 docker logs --tail 30 "${PIHOLE_CONTAINER:-pihole}" 2>&1)
@@ -167,8 +147,7 @@ media_show_plex_status() {
     fi
     lines+=("$(ui_kv_line "Active Sessions" "$(ui_cache_json media.json '.plex.sessions')")")
 
-    ui_draw_subscreen "Media - Plex Status" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Media - Plex Status" "${lines[@]}"
 }
 
 media_show_plex_sessions() {
@@ -187,8 +166,7 @@ media_show_plex_sessions() {
     lines+=("")
     lines+=("$(ui_kv_line "Session Count" "$(ui_cache_json media.json '.plex.sessions')")")
 
-    ui_draw_subscreen "Media - Plex Sessions" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "Media - Plex Sessions" "${lines[@]}"
 }
 
 media_show_plex_logs() {
@@ -208,7 +186,7 @@ media_show_plex_logs() {
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((offset > 0)) && ((offset--)) || true ;;
             $'\x1b[B'|j|J) ((offset < ${#lines[@]} - 1)) && ((offset++)) || true ;;
-            b|B|$'\x1b') return ;;
+            $'\r'|$'\n'|b|B|$'\x1b'|q|Q) return ;;
             r|R)
                 if command -v docker >/dev/null 2>&1; then
                     logs=$(ui_run_timeout 15 docker logs --tail 30 "${PLEX_CONTAINER:-plex}" 2>&1)

@@ -31,6 +31,9 @@ UI_SNAP_GPU_TEMP=""
 UI_SNAP_LAN_IP=""
 UI_SNAP_TAILSCALE_IP=""
 UI_SNAP_ROOT_USAGE=""
+UI_RESIZE_PENDING=0
+UI_CLEANED_UP=0
+UI_MENU_RESULT=""
 
 # =============================================================================
 # Configuration and theme loading
@@ -81,8 +84,24 @@ ui_update_size() {
         UI_ROWS=24
         UI_COLS=80
     fi
-    if (( UI_ROWS < 20 )); then UI_ROWS=20; fi
-    if (( UI_COLS < 60 )); then UI_COLS=60; fi
+    (( UI_ROWS < 8 )) && UI_ROWS=8
+    (( UI_COLS < 40 )) && UI_COLS=40
+}
+
+ui_layout_widths() {
+    local width="${UI_COLS}"
+    if (( width < 70 )); then
+        UI_LAYOUT_MENU_W=$((width * 2 / 5))
+    else
+        UI_LAYOUT_MENU_W=$((width / 3))
+    fi
+    if (( UI_LAYOUT_MENU_W < 18 )); then UI_LAYOUT_MENU_W=18; fi
+    UI_LAYOUT_DETAIL_W=$((width - UI_LAYOUT_MENU_W - 6))
+    if (( UI_LAYOUT_DETAIL_W < 12 )); then UI_LAYOUT_DETAIL_W=12; fi
+}
+
+ui_install_resize_trap() {
+    trap 'UI_RESIZE_PENDING=1' WINCH
 }
 
 ui_hide_cursor() {
@@ -125,8 +144,13 @@ ui_restore_screen() {
 }
 
 ui_cleanup() {
+    if (( UI_CLEANED_UP )); then
+        return 0
+    fi
+    UI_CLEANED_UP=1
     ui_restore_screen
     ui_tty_restore
+    printf '\n'
 }
 
 ui_tty_init() {
@@ -453,7 +477,7 @@ ui_main_snapshot_load() {
     UI_SNAP_GPU_STATUS=$(ui_cache_json "gpu.json" '.status' "unknown")
     UI_SNAP_GPU=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.utilization' "?")")
     UI_SNAP_GPU_TEMP=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.temperature' "N/A")")
-    UI_SNAP_GPU_HELP=$(ui_cache_json "gpu.json" '.help_hint' "Open GPU > Maintenance for driver checks and updates.")
+    UI_SNAP_GPU_HELP=$(ui_cache_json "gpu.json" '.help_hint' "Open main menu option 4 (GPU) > Maintenance for driver checks and updates.")
     if [[ "${UI_SNAP_GPU}" == "error" ]]; then
         UI_SNAP_GPU_STATUS="error"
     fi
@@ -482,8 +506,9 @@ ui_draw_header() {
 
 ui_draw_footer() {
     local width="${UI_COLS}"
-    local hints
-    hints=$(ui_color "${COLOR_DIM}" "1-8 Open")
+    local hints menu_max
+    menu_max=${#UI_MENU_ITEMS[@]}
+    hints=$(ui_color "${COLOR_DIM}" "1-${menu_max} Open")
     hints+="  "
     hints+=$(ui_color "${COLOR_DIM}" "Q Quit")
     hints+="  "
@@ -509,8 +534,9 @@ ui_set_menu_items() {
 
 ui_draw_split_menu() {
     local width="${UI_COLS}"
-    local menu_width=$((width / 3))
-    local detail_width=$((width - menu_width - 6))
+    ui_layout_widths
+    local menu_width="${UI_LAYOUT_MENU_W}"
+    local detail_width="${UI_LAYOUT_DETAIL_W}"
     local max_items=$((UI_ROWS - 8))
     local i start detail_lines
 
@@ -554,8 +580,9 @@ ui_render_detail_placeholder() {
 
 ui_draw_main_details() {
     local width="${UI_COLS}"
-    local menu_width=$((width / 3))
-    local detail_width=$((width - menu_width - 6))
+    ui_layout_widths
+    local menu_width="${UI_LAYOUT_MENU_W}"
+    local detail_width="${UI_LAYOUT_DETAIL_W}"
 
     local hostname uptime containers gpu_temp lan_ip tailscale_ip root_usage
     if (( UI_SNAP_LOADED )); then
@@ -582,9 +609,9 @@ ui_draw_main_details() {
     details+=("$(ui_color "${COLOR_LABEL}" "Containers: ")$(ui_color "${COLOR_VALUE}" "${containers}")")
     if [[ "${gpu_temp}" == "error" ]]; then
         details+=("$(ui_color "${COLOR_LABEL}" "GPU Temp: ")$(ui_gpu_temp_display "${gpu_temp}")")
-        local gpu_hint="${UI_SNAP_GPU_HELP:-Open GPU > Maintenance for driver checks and updates.}"
+        local         gpu_hint="${UI_SNAP_GPU_HELP:-Open main menu option 4 (GPU) > Maintenance for driver checks and updates.}"
         if (( ! UI_SNAP_LOADED )); then
-            gpu_hint=$(ui_cache_json "gpu.json" '.help_hint' "Open GPU > Maintenance for driver checks and updates.")
+            gpu_hint=$(ui_cache_json "gpu.json" '.help_hint' "Open main menu option 4 (GPU) > Maintenance for driver checks and updates.")
         fi
         details+=("$(ui_gpu_error_hint "${gpu_hint}")")
     else
@@ -632,6 +659,7 @@ ui_draw_main_screen() {
     ui_draw_header
     ui_draw_main_details
     ui_draw_footer
+    UI_RESIZE_PENDING=0
 }
 
 # Process a key on the main dashboard. Prints: nav, open, quit, refresh, screensaver, none
@@ -670,6 +698,7 @@ ui_main_process_key() {
 
 ui_draw_subscreen() {
     local mode="full"
+    local footer_hint=""
     if [[ "${1}" == "full" || "${1}" == "nav" ]]; then
         mode="$1"
         shift
@@ -682,6 +711,8 @@ ui_draw_subscreen() {
     local i
 
     ui_update_size
+    max_lines=$((UI_ROWS - 6))
+    if (( max_lines < 3 )); then max_lines=3; fi
     if [[ "${mode}" == "full" ]]; then
         ui_clear
     else
@@ -700,9 +731,145 @@ ui_draw_subscreen() {
 
     ui_draw_separator "${width}"
     local footer_text
-    footer_text="$(ui_color "${COLOR_DIM}" "Enter Select  B Back  R Refresh  Q Quit")"
+    if [[ -n "${footer_hint}" ]]; then
+        footer_text="${footer_hint}"
+    else
+        footer_text="$(ui_color "${COLOR_DIM}" "Enter number below  B Back  Q Quit")"
+    fi
     ui_draw_box_line "${width}" "$(ui_center "${footer_text}" $((width - 4)))"
     ui_draw_box_bottom "${width}"
+}
+
+ui_draw_numbered_menu_screen() {
+    local title="$1"
+    shift
+    local items=("$@")
+    local lines=() i num
+    local width="${UI_COLS}"
+    local max_lines=$((UI_ROWS - 6))
+    local footer_text
+
+    ui_update_size
+    max_lines=$((UI_ROWS - 6))
+    if (( max_lines < 3 )); then max_lines=3; fi
+
+    for ((i = 0; i < ${#items[@]}; i++)); do
+        num=$((i + 1))
+        lines+=("  ${num}) ${items[$i]}")
+    done
+
+    ui_clear
+    ui_draw_box_top "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
+    ui_draw_separator "${width}"
+
+    for ((i = 0; i < max_lines && i < ${#lines[@]}; i++)); do
+        ui_draw_box_line "${width}" "${lines[$i]}"
+    done
+    if (( ${#lines[@]} > max_lines )); then
+        ui_draw_box_line "${width}" "$(ui_color "${COLOR_DIM}" "  ... ${#items[@]} items — type number to select")"
+        for ((i = ${#lines[@]} + 1; i < max_lines; i++)); do
+            ui_draw_box_line "${width}" ""
+        done
+    else
+        for ((i = ${#lines[@]}; i < max_lines; i++)); do
+            ui_draw_box_line "${width}" ""
+        done
+    fi
+
+    ui_draw_separator "${width}"
+    footer_text="$(ui_color "${COLOR_DIM}" "1-${#items[@]} Select  B Back  Q Quit")"
+    ui_draw_box_line "${width}" "$(ui_center "${footer_text}" $((width - 4)))"
+    ui_draw_box_bottom "${width}"
+}
+
+ui_info_screen() {
+    local title="$1"
+    shift
+    local lines=("$@")
+    local width="${UI_COLS}"
+    local max_lines=$((UI_ROWS - 6))
+    local i
+
+    ui_update_size
+    max_lines=$((UI_ROWS - 6))
+    if (( max_lines < 3 )); then max_lines=3; fi
+
+    ui_clear
+    ui_draw_box_top "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
+    ui_draw_separator "${width}"
+
+    for ((i = 0; i < max_lines && i < ${#lines[@]}; i++)); do
+        ui_draw_box_line "${width}" "${lines[$i]}"
+    done
+    if (( ${#lines[@]} > max_lines )); then
+        ui_draw_box_line "${width}" "$(ui_color "${COLOR_DIM}" "  ... ${#lines[@]} lines — resize terminal to see more")"
+    fi
+    for ((i = ${#lines[@]}; i < max_lines; i++)); do
+        ui_draw_box_line "${width}" ""
+    done
+
+    ui_draw_separator "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Press Enter to return")" $((width - 4)))"
+    ui_draw_box_bottom "${width}"
+
+    ui_tty_restore
+    printf '\n'
+    read -r _
+    ui_tty_init
+}
+
+ui_numbered_menu() {
+    local title="$1"
+    shift
+    local items=("$@")
+    local choice
+
+    while true; do
+        if (( UI_RESIZE_PENDING )); then
+            ui_update_size
+            UI_RESIZE_PENDING=0
+        fi
+        ui_draw_numbered_menu_screen "${title}" "${items[@]}"
+
+        ui_tty_restore
+        printf '\n'
+        ui_color "${COLOR_LABEL}" "Choose an option: "
+        ui_reset_attrs
+        read -r choice
+        ui_tty_init
+
+        case "${choice}" in
+            b|B)
+                UI_MENU_RESULT="back"
+                return 0
+                ;;
+            q|Q)
+                UI_MENU_RESULT="quit"
+                return 0
+                ;;
+            r|R)
+                UI_MENU_RESULT="refresh"
+                return 0
+                ;;
+            '')
+                continue
+                ;;
+            *[!0-9]*)
+                ui_message "${title}" "Invalid choice: ${choice}"
+                ;;
+            *)
+                if (( choice >= 1 && choice <= ${#items[@]} )); then
+                    UI_MENU_INDEX=$((choice - 1))
+                    UI_MENU_RESULT="select"
+                    return 0
+                else
+                    ui_message "${title}" "Invalid choice: ${choice}"
+                fi
+                ;;
+        esac
+    done
 }
 
 ui_draw_scrollable_subscreen() {
@@ -735,7 +902,7 @@ ui_draw_scrollable_subscreen() {
 
     ui_draw_separator "${width}"
     local footer_text
-    footer_text="$(ui_color "${COLOR_DIM}" "↑↓ Scroll  B Back  R Refresh  Q Quit")"
+    footer_text="$(ui_color "${COLOR_DIM}" "↑↓ Scroll  Enter Return  Q Quit")"
     ui_draw_box_line "${width}" "$(ui_center "${footer_text}" $((width - 4)))"
     ui_draw_box_bottom "${width}"
 }
@@ -907,9 +1074,12 @@ ui_message() {
     ui_draw_box_line "${width}" "${message}"
     ui_draw_box_line "${width}" ""
     ui_draw_separator "${width}"
-    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Press any key...")" "${inner}")"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Press Enter to continue...")" "${inner}")"
     ui_draw_box_bottom "${width}"
-    ui_read_key >/dev/null
+    ui_tty_restore
+    printf '\n'
+    read -r _
+    ui_tty_init
 }
 
 ui_text_input() {
@@ -958,31 +1128,21 @@ ui_select_from_list() {
     local title="$1"
     shift
     local items=("$@")
-    local index=0
-    local result=""
-    local draw_mode="full"
 
-    while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "${title}" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            $'\r'|$'\n') result="${items[$index]}"; REPLY="${result}"; return 0 ;;
-            b|B|$'\x1b') return 1 ;;
-            q|Q) return 2 ;;
-        esac
-    done
+    ui_numbered_menu "${title}" "${items[@]}"
+    case "${UI_MENU_RESULT}" in
+        back)
+            return 1
+            ;;
+        quit)
+            return 2
+            ;;
+        select)
+            REPLY="${items[$UI_MENU_INDEX]}"
+            return 0
+            ;;
+    esac
+    return 1
 }
 
 # =============================================================================

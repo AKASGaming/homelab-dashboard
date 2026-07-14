@@ -6,50 +6,6 @@
 [[ -n "${_SYSTEM_SH_LOADED:-}" ]] && return 0
 _SYSTEM_SH_LOADED=1
 
-system_show_menu() {
-    local items=(
-        "Overview"
-        "CPU & Load"
-        "Memory"
-        "Temperatures"
-        "Filesystem"
-        "Mounts"
-        "SMART Health"
-        "Back"
-    )
-    local index=0
-
-    while true; do
-        case "${index}" in
-            0) system_show_overview ;;
-            1) system_show_cpu ;;
-            2) system_show_memory ;;
-            3) system_show_temps ;;
-            4) system_show_filesystem ;;
-            5) system_show_mounts ;;
-            6) system_show_smart ;;
-        esac
-
-        ui_read_key >/dev/null
-        case "${UI_LAST_KEY}" in
-            b|B|$'\x1b') return 0 ;;
-            q|Q) exit 0 ;;
-            r|R) continue ;;
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || index=0 ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || index=$((${#items[@]} - 1)) ;;
-            $'\r'|$'\n')
-                if (( index == 7 )); then return 0; fi
-                ;;
-        esac
-
-        ui_select_from_list "System" "${items[@]}" || return 0
-        index=0
-        for i in "${!items[@]}"; do
-            [[ "${items[$i]}" == "${REPLY}" ]] && index=$i
-        done
-    done
-}
-
 system_module_menu() {
     local items=(
         "Overview"
@@ -61,42 +17,14 @@ system_module_menu() {
         "SMART Health"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "System" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            r|R)
-                draw_mode="full"
-                case "${index}" in
-                    0) system_show_overview; continue ;;
-                    1) system_show_cpu; continue ;;
-                    2) system_show_memory; continue ;;
-                    3) system_show_temps; continue ;;
-                    4) system_show_filesystem; continue ;;
-                    5) system_show_mounts; continue ;;
-                    6) system_show_smart; continue ;;
-                esac
-                ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "System" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) system_show_overview ;;
                     1) system_show_cpu ;;
                     2) system_show_memory ;;
@@ -139,8 +67,7 @@ system_show_overview() {
     lines+=("")
     lines+=("$(ui_color "${COLOR_DIM}" "Cache age: ${age}s")")
 
-    ui_draw_subscreen "System - Overview" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - Overview" "${lines[@]}"
 }
 
 system_show_cpu() {
@@ -159,8 +86,7 @@ system_show_cpu() {
         lines+=("$(ui_kv_line "Model" "${model}")")
     fi
 
-    ui_draw_subscreen "System - CPU" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - CPU" "${lines[@]}"
 }
 
 system_show_memory() {
@@ -180,8 +106,7 @@ system_show_memory() {
         lines+=("$(ui_kv_line "Available" "${avail}")")
     fi
 
-    ui_draw_subscreen "System - Memory" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - Memory" "${lines[@]}"
 }
 
 system_show_temps() {
@@ -206,8 +131,7 @@ system_show_temps() {
         fi
     fi
 
-    ui_draw_subscreen "System - Temperatures" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - Temperatures" "${lines[@]}"
 }
 
 system_show_filesystem() {
@@ -217,8 +141,7 @@ system_show_filesystem() {
     lines+=("$(ui_kv_line "Available" "$(ui_cache_json system.json .root_avail) / $(ui_cache_json system.json .root_total)")")
     lines+=("$(ui_progress_bar "$(ui_cache_json system.json .root_usage_percent)" 30)")
 
-    ui_draw_subscreen "System - Filesystem" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - Filesystem" "${lines[@]}"
 }
 
 system_show_mounts() {
@@ -241,8 +164,7 @@ system_show_mounts() {
         lines+=("$(ui_color "${COLOR_DIM}" "No mount data")")
     fi
 
-    ui_draw_subscreen "System - Mounts" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - Mounts" "${lines[@]}"
 }
 
 system_show_smart() {
@@ -269,6 +191,5 @@ system_show_smart() {
         lines+=("$(ui_color "${COLOR_DIM}" "SMART cache unavailable")")
     fi
 
-    ui_draw_subscreen "System - SMART" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "System - SMART" "${lines[@]}"
 }

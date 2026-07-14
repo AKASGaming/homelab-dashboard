@@ -18,31 +18,14 @@ gpu_module_menu() {
         "Maintenance"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "GPU" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return 0 ;;
-            q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) draw_mode="full"; continue ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "GPU" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) continue ;;
+            quit) UI_RUNNING=0; return 0 ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) gpu_show_overview ;;
                     1) gpu_show_utilization ;;
                     2) gpu_show_memory ;;
@@ -93,8 +76,7 @@ gpu_show_overview() {
         lines+=("$(ui_color "${COLOR_STATUS_WARN}" "Open Maintenance to run GPU checks and updates.")")
     fi
 
-    ui_draw_subscreen "GPU - Overview" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Overview" "${lines[@]}"
 }
 
 gpu_show_utilization() {
@@ -106,8 +88,7 @@ gpu_show_utilization() {
     lines+=("$(ui_kv_line "Encoder" "$(ui_cache_json gpu.json .encoder)")")
     lines+=("$(ui_kv_line "Decoder" "$(ui_cache_json gpu.json .decoder)")")
 
-    ui_draw_subscreen "GPU - Utilization" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Utilization" "${lines[@]}"
 }
 
 gpu_show_memory() {
@@ -124,8 +105,7 @@ gpu_show_memory() {
         done
     fi
 
-    ui_draw_subscreen "GPU - Memory" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Memory" "${lines[@]}"
 }
 
 gpu_show_temp_power() {
@@ -141,8 +121,7 @@ gpu_show_temp_power() {
         done
     fi
 
-    ui_draw_subscreen "GPU - Temperature & Power" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Temperature & Power" "${lines[@]}"
 }
 
 gpu_show_encoder() {
@@ -151,8 +130,7 @@ gpu_show_encoder() {
     lines+=("$(ui_kv_line "Encoder" "$(ui_cache_json gpu.json .encoder)")")
     lines+=("$(ui_kv_line "Decoder" "$(ui_cache_json gpu.json .decoder)")")
 
-    ui_draw_subscreen "GPU - Encoder/Decoder" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Encoder/Decoder" "${lines[@]}"
 }
 
 gpu_show_processes() {
@@ -176,8 +154,7 @@ gpu_show_processes() {
         fi
     fi
 
-    ui_draw_subscreen "GPU - Processes" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Processes" "${lines[@]}"
 }
 
 gpu_show_full_query() {
@@ -197,7 +174,7 @@ gpu_show_full_query() {
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((offset > 0)) && ((offset--)) || true ;;
             $'\x1b[B'|j|J) ((offset < ${#lines[@]} - 1)) && ((offset++)) || true ;;
-            b|B|$'\x1b') return ;;
+            $'\r'|$'\n'|b|B|$'\x1b'|q|Q) return ;;
             r|R)
                 if command -v nvidia-smi >/dev/null 2>&1; then
                     query=$(ui_run_timeout 15 nvidia-smi -q 2>/dev/null | head -200)
@@ -222,29 +199,14 @@ gpu_maintenance_menu() {
         "Driver Rebuild Helper"
         "Back"
     )
-    local index=0
-    local draw_mode="full"
 
     while true; do
-        local lines=()
-        local i
-        for ((i = 0; i < ${#items[@]}; i++)); do
-            if (( i == index )); then
-                lines+=("$(ui_color "${COLOR_MENU_ACTIVE}" "> ${items[$i]}")")
-            else
-                lines+=("  ${items[$i]}")
-            fi
-        done
-        ui_draw_subscreen "${draw_mode}" "GPU - Maintenance" "${lines[@]}"
-        ui_read_key >/dev/null
-        draw_mode="nav"
-        case "${UI_LAST_KEY}" in
-            $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
-            $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            b|B|$'\x1b') return ;;
-            $'\r'|$'\n')
-                draw_mode="full"
-                case "${index}" in
+        ui_numbered_menu "GPU - Maintenance" "${items[@]}"
+        case "${UI_MENU_RESULT}" in
+            back|refresh) return ;;
+            quit) UI_RUNNING=0; return ;;
+            select)
+                case "${UI_MENU_INDEX}" in
                     0) gpu_restart_persistence ;;
                     1) gpu_reload_modules ;;
                     2) gpu_reconfigure_toolkit ;;
@@ -296,8 +258,7 @@ gpu_verify_docker() {
     else
         lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU test failed or timed out")")
     fi
-    ui_draw_subscreen "GPU - Docker Verify" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Docker Verify" "${lines[@]}"
 }
 
 gpu_dkms_status() {
@@ -310,8 +271,7 @@ gpu_dkms_status() {
     else
         lines+=("$(ui_color "${COLOR_DIM}" "DKMS not installed")")
     fi
-    ui_draw_subscreen "GPU - DKMS" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - DKMS" "${lines[@]}"
 }
 
 gpu_driver_rebuild() {
@@ -329,6 +289,5 @@ gpu_driver_rebuild() {
         done
         ui_message "GPU" "DKMS autoinstall completed"
     fi
-    ui_draw_subscreen "GPU - Driver Rebuild" "${lines[@]}"
-    ui_read_key >/dev/null
+    ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
 }

@@ -261,7 +261,7 @@ cache_gpu_write_error() {
   "processes_raw": "",
   "nvidia_smi_q": "",
   "error_message": "$(cache_json_escape "${reason}")",
-  "help_hint": "Open GPU > Maintenance to run DKMS status, driver rebuild, and Docker GPU verify. Then reboot if needed."
+  "help_hint": "Open main menu option 4 (GPU) > Maintenance to run DKMS status, driver rebuild, and Docker GPU verify. Then reboot if needed."
 }
 EOF
 )"
