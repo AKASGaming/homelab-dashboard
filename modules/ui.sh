@@ -19,6 +19,8 @@ UI_SNAP_LOADED=0
 UI_SNAP_CPU=""
 UI_SNAP_RAM=""
 UI_SNAP_GPU=""
+UI_SNAP_GPU_STATUS=""
+UI_SNAP_GPU_HELP=""
 UI_SNAP_DOCKER=""
 UI_SNAP_PIHOLE=""
 UI_SNAP_PLEX=""
@@ -356,6 +358,54 @@ ui_cache_stale_indicator() {
 }
 
 # =============================================================================
+# GPU display helpers
+# =============================================================================
+
+ui_gpu_is_error_value() {
+    local value="$1"
+    [[ "${value}" == "error" ]] && return 0
+    [[ -z "${value}" || "${value}" == "N/A" || "${value}" == "null" || "${value}" == "?" ]] && return 0
+    echo "${value}" | grep -qiE 'nvidia|failed|error|couldn|communicat|driver|not find|unknown|make sure' && return 0
+    echo "${value}" | grep -q '[[:space:]]' && return 0
+    return 1
+}
+
+ui_gpu_sanitize_field() {
+    local value="$1"
+    if ui_gpu_is_error_value "${value}"; then
+        printf 'error'
+    else
+        printf '%s' "${value}"
+    fi
+}
+
+ui_gpu_status_display() {
+    local util="$1"
+    util=$(ui_gpu_sanitize_field "${util}")
+    if [[ "${util}" == "error" ]]; then
+        ui_color "${COLOR_STATUS_ERR}" "error"
+    else
+        ui_color "${COLOR_VALUE}" "${util}%"
+    fi
+}
+
+ui_gpu_temp_display() {
+    local temp="$1"
+    temp=$(ui_gpu_sanitize_field "${temp}")
+    if [[ "${temp}" == "error" ]]; then
+        ui_color "${COLOR_STATUS_ERR}" "error"
+    else
+        ui_color "${COLOR_VALUE}" "${temp}"
+    fi
+}
+
+ui_gpu_error_hint() {
+    local hint="$1"
+    [[ -z "${hint}" ]] && hint="Open GPU > Maintenance for driver checks and updates."
+    ui_color "${COLOR_STATUS_WARN}" "${hint}"
+}
+
+# =============================================================================
 # Header, status bar, footer
 # =============================================================================
 
@@ -372,7 +422,7 @@ ui_build_status_line() {
     else
         cpu=$(ui_cache_json "system.json" '.cpu_percent' "?")
         ram=$(ui_cache_json "system.json" '.ram_percent' "?")
-        gpu=$(ui_cache_json "gpu.json" '.utilization' "?")
+        gpu=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.utilization' "?")")
         docker_status=$(ui_cache_json "docker.json" '.daemon_running' "false")
         pihole_status=$(ui_cache_json "media.json" '.pihole.running' "false")
         plex_status=$(ui_cache_json "media.json" '.plex.running' "false")
@@ -384,7 +434,8 @@ ui_build_status_line() {
     status_line+=$(ui_color "${COLOR_LABEL}" "RAM ")
     status_line+=$(ui_color "${COLOR_VALUE}" "${ram}% ")
     status_line+=$(ui_color "${COLOR_LABEL}" "GPU ")
-    status_line+=$(ui_color "${COLOR_VALUE}" "${gpu}% ")
+    status_line+=$(ui_gpu_status_display "${gpu}")
+    status_line+=" "
     status_line+=$(ui_color "${COLOR_LABEL}" "Docker ")
     status_line+=$(ui_status_icon "$([[ "${docker_status}" == "true" ]] && echo ok || echo err)")
     status_line+=" "
@@ -399,14 +450,19 @@ ui_build_status_line() {
 ui_main_snapshot_load() {
     UI_SNAP_CPU=$(ui_cache_json "system.json" '.cpu_percent' "?")
     UI_SNAP_RAM=$(ui_cache_json "system.json" '.ram_percent' "?")
-    UI_SNAP_GPU=$(ui_cache_json "gpu.json" '.utilization' "?")
+    UI_SNAP_GPU_STATUS=$(ui_cache_json "gpu.json" '.status' "unknown")
+    UI_SNAP_GPU=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.utilization' "?")")
+    UI_SNAP_GPU_TEMP=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.temperature' "N/A")")
+    UI_SNAP_GPU_HELP=$(ui_cache_json "gpu.json" '.help_hint' "Open GPU > Maintenance for driver checks and updates.")
+    if [[ "${UI_SNAP_GPU}" == "error" ]]; then
+        UI_SNAP_GPU_STATUS="error"
+    fi
     UI_SNAP_DOCKER=$(ui_cache_json "docker.json" '.daemon_running' "false")
     UI_SNAP_PIHOLE=$(ui_cache_json "media.json" '.pihole.running' "false")
     UI_SNAP_PLEX=$(ui_cache_json "media.json" '.plex.running' "false")
     UI_SNAP_HOSTNAME=$(ui_cache_json "system.json" '.hostname' "unknown")
     UI_SNAP_UPTIME=$(ui_cache_json "system.json" '.uptime_human' "unknown")
     UI_SNAP_CONTAINERS=$(ui_cache_json "docker.json" '.container_count' "0")
-    UI_SNAP_GPU_TEMP=$(ui_cache_json "gpu.json" '.temperature' "N/A")
     UI_SNAP_LAN_IP=$(ui_cache_json "network.json" '.lan_ip' "N/A")
     UI_SNAP_TAILSCALE_IP=$(ui_cache_json "tailscale.json" '.self_ip' "N/A")
     UI_SNAP_ROOT_USAGE=$(ui_cache_json "system.json" '.root_usage_percent' "N/A")
@@ -514,7 +570,7 @@ ui_draw_main_details() {
         hostname=$(ui_cache_json "system.json" '.hostname' "unknown")
         uptime=$(ui_cache_json "system.json" '.uptime_human' "unknown")
         containers=$(ui_cache_json "docker.json" '.container_count' "0")
-        gpu_temp=$(ui_cache_json "gpu.json" '.temperature' "N/A")
+        gpu_temp=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.temperature' "N/A")")
         lan_ip=$(ui_cache_json "network.json" '.lan_ip' "N/A")
         tailscale_ip=$(ui_cache_json "tailscale.json" '.self_ip' "N/A")
         root_usage=$(ui_cache_json "system.json" '.root_usage_percent' "N/A")
@@ -524,7 +580,16 @@ ui_draw_main_details() {
     details+=("$(ui_color "${COLOR_LABEL}" "Hostname: ")$(ui_color "${COLOR_VALUE}" "${hostname}")")
     details+=("$(ui_color "${COLOR_LABEL}" "Uptime: ")$(ui_color "${COLOR_VALUE}" "${uptime}")")
     details+=("$(ui_color "${COLOR_LABEL}" "Containers: ")$(ui_color "${COLOR_VALUE}" "${containers}")")
-    details+=("$(ui_color "${COLOR_LABEL}" "GPU Temp: ")$(ui_color "${COLOR_VALUE}" "${gpu_temp}")")
+    if [[ "${gpu_temp}" == "error" ]]; then
+        details+=("$(ui_color "${COLOR_LABEL}" "GPU Temp: ")$(ui_gpu_temp_display "${gpu_temp}")")
+        local gpu_hint="${UI_SNAP_GPU_HELP:-Open GPU > Maintenance for driver checks and updates.}"
+        if (( ! UI_SNAP_LOADED )); then
+            gpu_hint=$(ui_cache_json "gpu.json" '.help_hint' "Open GPU > Maintenance for driver checks and updates.")
+        fi
+        details+=("$(ui_gpu_error_hint "${gpu_hint}")")
+    else
+        details+=("$(ui_color "${COLOR_LABEL}" "GPU Temp: ")$(ui_gpu_temp_display "${gpu_temp}")")
+    fi
     details+=("$(ui_color "${COLOR_LABEL}" "LAN: ")$(ui_color "${COLOR_VALUE}" "${lan_ip}")")
     details+=("$(ui_color "${COLOR_LABEL}" "Tailscale: ")$(ui_color "${COLOR_VALUE}" "${tailscale_ip}")")
     details+=("$(ui_color "${COLOR_LABEL}" "Root Usage: ")$(ui_color "${COLOR_VALUE}" "${root_usage}%")")

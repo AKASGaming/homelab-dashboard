@@ -60,22 +60,38 @@ gpu_module_menu() {
 
 gpu_show_overview() {
     local lines=()
-    local available
+    local available status util
     available=$(ui_cache_json gpu.json .available)
+    status=$(ui_cache_json gpu.json .status)
+    util=$(ui_cache_json gpu.json .utilization)
 
     lines+=("$(ui_section_header "GPU Overview")")
-    if [[ "${available}" == "true" ]]; then
+    if [[ "${status}" == "error" ]] || ui_gpu_is_error_value "${util}"; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU error")")
+        lines+=("")
+        local err_msg hint
+        err_msg=$(ui_cache_json gpu.json .error_message)
+        [[ -n "${err_msg}" ]] && lines+=("$(ui_color "${COLOR_DIM}" "${err_msg}")")
+        hint=$(ui_cache_json gpu.json .help_hint)
+        [[ -z "${hint}" ]] && hint="Open Maintenance below to run GPU checks and driver updates."
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "${hint}")")
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_LABEL}" "Maintenance tools:")")
+        lines+=("  DKMS Status, Driver Rebuild, Docker GPU Verify")
+    elif [[ "${available}" == "true" ]]; then
         lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ NVIDIA GPU detected")")
+        lines+=("")
+        lines+=("$(ui_kv_line "GPU" "$(ui_cache_json gpu.json .gpu_name)")")
+        lines+=("$(ui_kv_line "Driver" "$(ui_cache_json gpu.json .driver)")")
+        lines+=("$(ui_kv_line "Utilization" "$(ui_cache_json gpu.json .utilization)%")")
+        lines+=("$(ui_progress_bar "$(ui_cache_json gpu.json .utilization)" 25)")
+        lines+=("$(ui_kv_line "Temperature" "$(ui_cache_json gpu.json .temperature)")")
+        lines+=("$(ui_kv_line "Power" "$(ui_cache_json gpu.json .power) W")")
     else
         lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU not available")")
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "Open Maintenance to run GPU checks and updates.")")
     fi
-    lines+=("")
-    lines+=("$(ui_kv_line "GPU" "$(ui_cache_json gpu.json .gpu_name)")")
-    lines+=("$(ui_kv_line "Driver" "$(ui_cache_json gpu.json .driver)")")
-    lines+=("$(ui_kv_line "Utilization" "$(ui_cache_json gpu.json .utilization)%")")
-    lines+=("$(ui_progress_bar "$(ui_cache_json gpu.json .utilization)" 25)")
-    lines+=("$(ui_kv_line "Temperature" "$(ui_cache_json gpu.json .temperature)")")
-    lines+=("$(ui_kv_line "Power" "$(ui_cache_json gpu.json .power) W")")
 
     ui_draw_subscreen "GPU - Overview" "${lines[@]}"
     ui_read_key >/dev/null

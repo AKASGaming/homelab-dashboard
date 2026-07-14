@@ -235,48 +235,96 @@ EOF
 # GPU metrics (NVIDIA)
 # =============================================================================
 
+cache_gpu_metric_invalid() {
+    local value="$1"
+    [[ -z "${value}" || "${value}" == "N/A" || "${value}" == "null" ]] && return 0
+    echo "${value}" | grep -qiE 'nvidia|failed|error|couldn|communicat|driver|not find|unknown|make sure' && return 0
+    echo "${value}" | grep -q '[[:space:]]' && return 0
+    return 1
+}
+
+cache_gpu_write_error() {
+    local reason="${1:-NVIDIA driver not responding}"
+    cache_write_json "gpu.json" "$(cat <<EOF
+{
+  "timestamp": $(date +%s),
+  "available": false,
+  "status": "error",
+  "utilization": "error",
+  "memory": "error",
+  "temperature": "error",
+  "power": "error",
+  "driver": "error",
+  "gpu_name": "error",
+  "encoder": "error",
+  "decoder": "error",
+  "processes_raw": "",
+  "nvidia_smi_q": "",
+  "error_message": "$(cache_json_escape "${reason}")",
+  "help_hint": "Open GPU > Maintenance to run DKMS status, driver rebuild, and Docker GPU verify. Then reboot if needed."
+}
+EOF
+)"
+}
+
 cache_collect_gpu() {
     if [[ "${GPU_ENABLED:-true}" != "true" ]] || ! command -v "${GPU_COMMAND:-nvidia-smi}" >/dev/null 2>&1; then
-        cache_write_json "gpu.json" '{"available":false,"utilization":"N/A","temperature":"N/A"}'
+        cache_gpu_write_error "nvidia-smi not installed"
         return
     fi
 
     local gpu_cmd="${GPU_COMMAND:-nvidia-smi}"
-    local util mem temp power driver cuda processes encoder decoder
-    local full_query available="false"
+    local util mem temp power driver cuda encoder decoder processes full_query
+    local smi_output
 
-    if cache_run_timeout "${GPU_QUERY_TIMEOUT:-15}" "${gpu_cmd}" >/dev/null 2>&1; then
-        available="true"
-        util=$("${gpu_cmd}" --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || echo "0")
-        mem=$("${gpu_cmd}" --query-gpu=utilization.memory,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
-        temp=$("${gpu_cmd}" --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || echo "N/A")
-        power=$("${gpu_cmd}" --query-gpu=power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
-        driver=$("${gpu_cmd}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | tr -d ' ' || echo "N/A")
-        cuda=$("${gpu_cmd}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "N/A")
-        encoder=$("${gpu_cmd}" --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
-        decoder=$("${gpu_cmd}" --query-gpu=decoder.stats.sessionCount,decoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
-        processes=$("${gpu_cmd}" --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader 2>/dev/null | head -20 || echo "")
-        full_query=$(cache_run_timeout "${GPU_QUERY_TIMEOUT:-15}" "${gpu_cmd}" -q 2>/dev/null | head -200 || echo "")
-    else
-        util="N/A"; mem="N/A"; temp="N/A"; power="N/A"
-        driver="N/A"; cuda="N/A"; encoder="N/A"; decoder="N/A"
-        processes=""; full_query=""
+    smi_output=$("${gpu_cmd}" --query-gpu=utilization.gpu,temperature.gpu,name,driver_version \
+        --format=csv,noheader,nounits 2>&1 | head -1 || true)
+
+    if cache_gpu_metric_invalid "${smi_output}"; then
+        if echo "${smi_output}" | grep -qi 'couldn.t communicate'; then
+            cache_gpu_write_error "NVIDIA driver not communicating"
+        elif echo "${smi_output}" | grep -qi 'not found'; then
+            cache_gpu_write_error "NVIDIA driver not found"
+        else
+            cache_gpu_write_error "NVIDIA GPU query failed"
+        fi
+        return
     fi
+
+    util=$(echo "${smi_output}" | awk -F',' '{gsub(/ /,"",$1); print $1}')
+    temp=$(echo "${smi_output}" | awk -F',' '{gsub(/ /,"",$2); print $2}')
+    cuda=$(echo "${smi_output}" | awk -F',' '{gsub(/^ /,"",$3); print $3}')
+    driver=$(echo "${smi_output}" | awk -F',' '{gsub(/^ /,"",$4); print $4}')
+
+    if cache_gpu_metric_invalid "${util}" || cache_gpu_metric_invalid "${temp}"; then
+        cache_gpu_write_error "NVIDIA returned invalid GPU metrics"
+        return
+    fi
+
+    mem=$("${gpu_cmd}" --query-gpu=utilization.memory,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
+    power=$("${gpu_cmd}" --query-gpu=power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "N/A")
+    encoder=$("${gpu_cmd}" --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
+    decoder=$("${gpu_cmd}" --query-gpu=decoder.stats.sessionCount,decoder.stats.averageFps --format=csv,noheader 2>/dev/null | head -1 || echo "0, 0")
+    processes=$("${gpu_cmd}" --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader 2>/dev/null | head -20 || echo "")
+    full_query=$(cache_run_timeout "${GPU_QUERY_TIMEOUT:-15}" "${gpu_cmd}" -q 2>/dev/null | head -200 || echo "")
 
     cache_write_json "gpu.json" "$(cat <<EOF
 {
   "timestamp": $(date +%s),
-  "available": ${available},
+  "available": true,
+  "status": "ok",
   "utilization": "$(cache_json_escape "${util}")",
   "memory": "$(cache_json_escape "${mem}")",
-  "temperature": "$(cache_json_escape "${temp}")°C",
+  "temperature": "$(cache_json_escape "${temp}")C",
   "power": "$(cache_json_escape "${power}")",
   "driver": "$(cache_json_escape "${driver}")",
   "gpu_name": "$(cache_json_escape "${cuda}")",
   "encoder": "$(cache_json_escape "${encoder}")",
   "decoder": "$(cache_json_escape "${decoder}")",
   "processes_raw": "$(cache_json_escape "${processes}")",
-  "nvidia_smi_q": "$(cache_json_escape "${full_query}")"
+  "nvidia_smi_q": "$(cache_json_escape "${full_query}")",
+  "error_message": "",
+  "help_hint": ""
 }
 EOF
 )"
