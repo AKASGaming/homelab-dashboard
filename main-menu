@@ -65,30 +65,38 @@ dashboard_main_loop() {
     read -ra items <<< "$(dashboard_get_menu_items)"
     ui_set_menu_items "${items[@]}"
 
+    ui_draw_main_screen full
+
     while (( UI_RUNNING )); do
-        ui_draw_main_screen
+        if ui_wait_key "${UI_REFRESH_INTERVAL:-30}"; then
+            local action
+            ui_handle_menu_nav
+            action=$?
 
-        ui_read_key >/dev/null
-        local action
-        ui_handle_menu_nav
-        action=$?
-
-        case "${action}" in
-            0) ;; # navigated
-            1) # enter
-                dashboard_open_module "${UI_MENU_ITEMS[$UI_MENU_INDEX]}"
-                ;;
-            2) # quit
-                break
-                ;;
-            3) # refresh - just redraw from cache
-                ;;
-            4) # screensaver
-                screensaver_run
-                ;;
-        esac
-
-        sleep "${UI_REFRESH_INTERVAL:-2}" 2>/dev/null || sleep 1
+            case "${action}" in
+                0)
+                    ui_draw_main_screen nav
+                    ;;
+                1)
+                    dashboard_open_module "${UI_MENU_ITEMS[$UI_MENU_INDEX]}"
+                    ui_draw_main_screen full
+                    ;;
+                2)
+                    break
+                    ;;
+                3)
+                    ui_draw_main_screen full
+                    ;;
+                4)
+                    screensaver_run
+                    ui_draw_main_screen full
+                    ;;
+                *)
+                    ;;
+            esac
+        else
+            ui_draw_main_screen status
+        fi
     done
 }
 

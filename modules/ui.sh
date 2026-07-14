@@ -15,6 +15,9 @@ UI_MENU_INDEX=0
 UI_MENU_ITEMS=()
 UI_LAST_KEY=""
 UI_RUNNING=1
+UI_LAST_COLS=0
+UI_LAST_ROWS=0
+UI_MAIN_STATUS_ROW=3
 
 # =============================================================================
 # Configuration and theme loading
@@ -79,6 +82,14 @@ ui_show_cursor() {
 
 ui_clear() {
     printf '\033[2J\033[H'
+}
+
+ui_cursor_home() {
+    printf '\033[H'
+}
+
+ui_clear_line() {
+    printf '\033[2K'
 }
 
 ui_reset_attrs() {
@@ -315,17 +326,7 @@ ui_cache_stale_indicator() {
 # Header, status bar, footer
 # =============================================================================
 
-ui_draw_header() {
-    local width="${UI_COLS}"
-    local title="${BANNER_TITLE:-THEATERNAS CONTROL CENTER}"
-    local hostname
-    hostname=$(ui_cache_json "system.json" '.hostname' "$(hostname -s 2>/dev/null || echo unknown)")
-
-    ui_draw_box_top "${width}"
-    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
-    ui_draw_separator "${width}"
-
-    # Status bar line
+ui_build_status_line() {
     local cpu ram gpu docker_status pihole_status plex_status
     cpu=$(ui_cache_json "system.json" '.cpu_percent' "?")
     ram=$(ui_cache_json "system.json" '.ram_percent' "?")
@@ -349,9 +350,34 @@ ui_draw_header() {
     status_line+=" "
     status_line+=$(ui_color "${COLOR_LABEL}" "Plex ")
     status_line+=$(ui_status_icon "$([[ "${plex_status}" == "true" ]] && echo ok || echo err)")
+    printf '%s' "${status_line}"
+}
 
-    ui_draw_box_line "${width}" "${status_line}"
+ui_draw_header() {
+    local width="${UI_COLS}"
+    local title="${BANNER_TITLE:-THEATERNAS CONTROL CENTER}"
+
+    ui_draw_box_top "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
     ui_draw_separator "${width}"
+    ui_draw_box_line "${width}" "$(ui_build_status_line)"
+    ui_draw_separator "${width}"
+}
+
+ui_refresh_main_status() {
+    local width="${UI_COLS}"
+    local row="${UI_MAIN_STATUS_ROW}"
+    if command -v tput >/dev/null 2>&1; then
+        tput cup "${row}" 0 2>/dev/null || printf '\033[%d;1H' $((row + 1))
+    else
+        printf '\033[%d;1H' $((row + 1))
+    fi
+    ui_clear_line
+    ui_color "${COLOR_BORDER}" "│ "
+    ui_reset_attrs
+    ui_pad_right "$(ui_build_status_line)" $((width - 4))
+    ui_color "${COLOR_BORDER}" " │"
+    ui_reset_attrs
 }
 
 ui_draw_footer() {
@@ -489,11 +515,36 @@ ui_draw_main_details() {
 }
 
 ui_draw_main_screen() {
+    local mode="${1:-full}"
     ui_update_size
-    ui_clear
-    ui_draw_header
-    ui_draw_main_details
-    ui_draw_footer
+
+    # Terminal resized — must full redraw
+    if [[ "${mode}" == "nav" || "${mode}" == "status" ]]; then
+        if (( UI_COLS != UI_LAST_COLS || UI_ROWS != UI_LAST_ROWS )); then
+            mode="full"
+        fi
+    fi
+
+    case "${mode}" in
+        full)
+            ui_clear
+            ui_draw_header
+            ui_draw_main_details
+            ui_draw_footer
+            ;;
+        nav)
+            ui_cursor_home
+            ui_draw_header
+            ui_draw_main_details
+            ui_draw_footer
+            ;;
+        status)
+            ui_refresh_main_status
+            ;;
+    esac
+
+    UI_LAST_COLS=${UI_COLS}
+    UI_LAST_ROWS=${UI_ROWS}
 }
 
 # =============================================================================
@@ -501,6 +552,11 @@ ui_draw_main_screen() {
 # =============================================================================
 
 ui_draw_subscreen() {
+    local mode="full"
+    if [[ "${1}" == "full" || "${1}" == "nav" ]]; then
+        mode="$1"
+        shift
+    fi
     local title="$1"
     shift
     local lines=("$@")
@@ -509,7 +565,11 @@ ui_draw_subscreen() {
     local i
 
     ui_update_size
-    ui_clear
+    if [[ "${mode}" == "full" ]]; then
+        ui_clear
+    else
+        ui_cursor_home
+    fi
     ui_draw_box_top "${width}"
     ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
     ui_draw_separator "${width}"
@@ -579,18 +639,26 @@ ui_read_key() {
     printf '%s' "${key}"
 }
 
+# Wait for a keypress. Returns 0 if a key was pressed, 1 on timeout.
 ui_wait_key() {
     local timeout="${1:-0}"
+    UI_LAST_KEY=""
+
     if (( timeout > 0 )); then
-        read -rsn1 -t "${timeout}" UI_LAST_KEY 2>/dev/null || UI_LAST_KEY=""
-        if [[ "${UI_LAST_KEY}" == $'\x1b' ]]; then
-            local rest
-            read -rsn2 -t 0.1 rest 2>/dev/null || rest=""
-            UI_LAST_KEY+="${rest}"
+        if ! IFS= read -rsn1 -t "${timeout}" UI_LAST_KEY 2>/dev/null; then
+            return 1
         fi
     else
-        ui_read_key >/dev/null
+        IFS= read -rsn1 UI_LAST_KEY 2>/dev/null || UI_LAST_KEY=""
     fi
+
+    if [[ "${UI_LAST_KEY}" == $'\x1b' ]]; then
+        local rest
+        read -rsn2 -t 0.1 rest 2>/dev/null || rest=""
+        UI_LAST_KEY+="${rest}"
+    fi
+
+    [[ -n "${UI_LAST_KEY}" ]]
 }
 
 ui_handle_menu_nav() {
@@ -720,6 +788,7 @@ ui_select_from_list() {
     local items=("$@")
     local index=0
     local result=""
+    local draw_mode="full"
 
     while true; do
         local lines=()
@@ -731,8 +800,9 @@ ui_select_from_list() {
                 lines+=("  ${items[$i]}")
             fi
         done
-        ui_draw_subscreen "${title}" "${lines[@]}"
+        ui_draw_subscreen "${draw_mode}" "${title}" "${lines[@]}"
         ui_read_key >/dev/null
+        draw_mode="nav"
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;

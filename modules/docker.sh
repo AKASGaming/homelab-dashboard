@@ -22,6 +22,7 @@ docker_module_menu() {
         "Back"
     )
     local index=0
+    local draw_mode="full"
 
     while true; do
         local lines=()
@@ -33,15 +34,17 @@ docker_module_menu() {
                 lines+=("  ${items[$i]}")
             fi
         done
-        ui_draw_subscreen "Docker" "${lines[@]}"
+        ui_draw_subscreen "${draw_mode}" "Docker" "${lines[@]}"
         ui_read_key >/dev/null
+        draw_mode="nav"
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
             b|B|$'\x1b') return 0 ;;
             q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) continue ;;
+            r|R) draw_mode="full"; continue ;;
             ''|$'\n'|$'\r')
+                draw_mode="full"
                 case "${index}" in
                     0) docker_show_overview ;;
                     1) docker_show_containers ;;

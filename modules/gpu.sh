@@ -19,6 +19,7 @@ gpu_module_menu() {
         "Back"
     )
     local index=0
+    local draw_mode="full"
 
     while true; do
         local lines=()
@@ -30,15 +31,17 @@ gpu_module_menu() {
                 lines+=("  ${items[$i]}")
             fi
         done
-        ui_draw_subscreen "GPU" "${lines[@]}"
+        ui_draw_subscreen "${draw_mode}" "GPU" "${lines[@]}"
         ui_read_key >/dev/null
+        draw_mode="nav"
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
             b|B|$'\x1b') return 0 ;;
             q|Q) UI_RUNNING=0; return 0 ;;
-            r|R) continue ;;
+            r|R) draw_mode="full"; continue ;;
             ''|$'\n'|$'\r')
+                draw_mode="full"
                 case "${index}" in
                     0) gpu_show_overview ;;
                     1) gpu_show_utilization ;;
@@ -204,6 +207,7 @@ gpu_maintenance_menu() {
         "Back"
     )
     local index=0
+    local draw_mode="full"
 
     while true; do
         local lines=()
@@ -215,13 +219,15 @@ gpu_maintenance_menu() {
                 lines+=("  ${items[$i]}")
             fi
         done
-        ui_draw_subscreen "GPU - Maintenance" "${lines[@]}"
+        ui_draw_subscreen "${draw_mode}" "GPU - Maintenance" "${lines[@]}"
         ui_read_key >/dev/null
+        draw_mode="nav"
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
             b|B|$'\x1b') return ;;
             ''|$'\n'|$'\r')
+                draw_mode="full"
                 case "${index}" in
                     0) gpu_restart_persistence ;;
                     1) gpu_reload_modules ;;
