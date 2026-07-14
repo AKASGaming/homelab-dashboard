@@ -499,7 +499,7 @@ ui_main_snapshot_load() {
     UI_SNAP_GPU_STATUS=$(ui_cache_json "gpu.json" '.status' "unknown")
     UI_SNAP_GPU=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.utilization' "?")")
     UI_SNAP_GPU_TEMP=$(ui_gpu_sanitize_field "$(ui_cache_json "gpu.json" '.temperature' "N/A")")
-    UI_SNAP_GPU_HELP=$(ui_cache_json "gpu.json" '.help_hint' "Open main menu option 4 (GPU) > Maintenance for driver checks and updates.")
+    UI_SNAP_GPU_HELP=$(ui_cache_json "gpu.json" '.help_hint' "GPU error — GPU > Maintenance > Recovery Guide")
     if [[ "${UI_SNAP_GPU}" == "error" ]]; then
         UI_SNAP_GPU_STATUS="error"
     fi
@@ -631,9 +631,9 @@ ui_draw_main_details() {
     details+=("$(ui_color "${COLOR_LABEL}" "Containers: ")$(ui_color "${COLOR_VALUE}" "${containers}")")
     if [[ "${gpu_temp}" == "error" ]]; then
         details+=("$(ui_color "${COLOR_LABEL}" "GPU Temp: ")$(ui_gpu_temp_display "${gpu_temp}")")
-        local         gpu_hint="${UI_SNAP_GPU_HELP:-Open main menu option 4 (GPU) > Maintenance for driver checks and updates.}"
+        local         gpu_hint="${UI_SNAP_GPU_HELP:-GPU error — GPU > Maintenance > Recovery Guide}"
         if (( ! UI_SNAP_LOADED )); then
-            gpu_hint=$(ui_cache_json "gpu.json" '.help_hint' "Open main menu option 4 (GPU) > Maintenance for driver checks and updates.")
+            gpu_hint=$(ui_cache_json "gpu.json" '.help_hint' "GPU error — GPU > Maintenance > Recovery Guide")
         fi
         details+=("$(ui_gpu_error_hint "${gpu_hint}")")
     else

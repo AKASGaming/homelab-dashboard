@@ -6,6 +6,53 @@
 [[ -n "${_GPU_SH_LOADED:-}" ]] && return 0
 _GPU_SH_LOADED=1
 
+gpu_is_error_state() {
+    local status util
+    status=$(ui_cache_json gpu.json .status)
+    util=$(ui_cache_json gpu.json .utilization)
+    [[ "${status}" == "error" ]] && return 0
+    ui_gpu_is_error_value "${util}" && return 0
+    return 1
+}
+
+gpu_append_recovery_guide() {
+    local -n _out_lines=$1
+    _out_lines+=("")
+    _out_lines+=("$(ui_color "${COLOR_STATUS_WARN}" "update-dashboard does NOT update NVIDIA drivers.")")
+    _out_lines+=("$(ui_color "${COLOR_DIM}" "After a kernel or system update, run Maintenance in this order:")")
+    _out_lines+=("  1) DKMS Status — confirm nvidia module matches kernel $(uname -r)")
+    _out_lines+=("  2) Driver Rebuild Helper — runs dkms autoinstall")
+    _out_lines+=("  3) Reboot the server")
+    _out_lines+=("  4) Reload NVIDIA Modules — if GPU still errors after reboot")
+    _out_lines+=("  5) Verify Docker GPU — if you use GPU containers")
+    _out_lines+=("  6) Reconfigure Container Toolkit — if Docker verify fails")
+}
+
+gpu_show_error_context() {
+    local title="$1"
+    local lines=()
+    local err_msg
+
+    lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU driver not responding")")
+    err_msg=$(ui_cache_json gpu.json .error_message)
+    [[ -n "${err_msg}" ]] && lines+=("$(ui_color "${COLOR_DIM}" "${err_msg}")")
+    lines+=("$(ui_color "${COLOR_DIM}" "nvidia-smi cannot read GPU metrics until drivers are rebuilt.")")
+    gpu_append_recovery_guide lines
+    ui_info_screen "${title}" "${lines[@]}"
+}
+
+gpu_capture_command_lines() {
+    local -n _out_lines=$1
+    local output="$2"
+    if [[ -z "${output}" ]]; then
+        return 1
+    fi
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && _out_lines+=("${line}")
+    done <<< "${output}"
+    return 0
+}
+
 gpu_module_menu() {
     local items=(
         "Overview"
@@ -53,15 +100,12 @@ gpu_show_overview() {
     if [[ "${status}" == "error" ]] || ui_gpu_is_error_value "${util}"; then
         lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU error")")
         lines+=("")
-        local err_msg hint
+        local err_msg
         err_msg=$(ui_cache_json gpu.json .error_message)
         [[ -n "${err_msg}" ]] && lines+=("$(ui_color "${COLOR_DIM}" "${err_msg}")")
-        hint=$(ui_cache_json gpu.json .help_hint)
-        [[ -z "${hint}" ]] && hint="Open Maintenance below to run GPU checks and driver updates."
-        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "${hint}")")
-        lines+=("")
-        lines+=("$(ui_color "${COLOR_LABEL}" "Maintenance tools:")")
-        lines+=("  DKMS Status, Driver Rebuild, Docker GPU Verify")
+        lines+=("$(ui_color "${COLOR_DIM}" "nvidia-smi cannot communicate with the driver.")")
+        lines+=("$(ui_color "${COLOR_DIM}" "This is common after kernel or system updates.")")
+        gpu_append_recovery_guide lines
     elif [[ "${available}" == "true" ]]; then
         lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ NVIDIA GPU detected")")
         lines+=("")
@@ -81,6 +125,7 @@ gpu_show_overview() {
 }
 
 gpu_show_utilization() {
+    gpu_is_error_state && { gpu_show_error_context "GPU - Utilization"; return; }
     local lines=()
     lines+=("$(ui_section_header "GPU Utilization")")
     lines+=("$(ui_kv_line "GPU" "$(ui_cache_json gpu.json .utilization)%")")
@@ -93,6 +138,7 @@ gpu_show_utilization() {
 }
 
 gpu_show_memory() {
+    gpu_is_error_state && { gpu_show_error_context "GPU - Memory"; return; }
     local lines=()
     lines+=("$(ui_section_header "GPU Memory")")
     local mem
@@ -100,32 +146,38 @@ gpu_show_memory() {
     lines+=("$(ui_kv_line "Usage" "${mem}")")
 
     if command -v nvidia-smi >/dev/null 2>&1; then
-        lines+=("")
-        nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv 2>/dev/null | while IFS= read -r line; do
-            lines+=("${line}")
-        done
+        local smi_out
+        smi_out=$(nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv 2>/dev/null || true)
+        if [[ -n "${smi_out}" ]]; then
+            lines+=("")
+            gpu_capture_command_lines lines "${smi_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No memory data returned")")
+        fi
     fi
 
     ui_info_screen "GPU - Memory" "${lines[@]}"
 }
 
 gpu_show_temp_power() {
+    gpu_is_error_state && { gpu_show_error_context "GPU - Temperature & Power"; return; }
     local lines=()
     lines+=("$(ui_section_header "Temperature & Power")")
     lines+=("$(ui_kv_line "Temperature" "$(ui_cache_json gpu.json .temperature)")")
     lines+=("$(ui_kv_line "Power" "$(ui_cache_json gpu.json .power)")")
 
     if command -v nvidia-smi >/dev/null 2>&1; then
-        lines+=("")
-        nvidia-smi --query-gpu=temperature.gpu,fan.speed,power.draw,power.limit --format=csv 2>/dev/null | while IFS= read -r line; do
-            lines+=("${line}")
-        done
+        local smi_out
+        smi_out=$(nvidia-smi --query-gpu=temperature.gpu,fan.speed,power.draw,power.limit --format=csv 2>/dev/null || true)
+        if [[ -n "${smi_out}" ]]; then
+            lines+=("")
+            gpu_capture_command_lines lines "${smi_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No sensor data returned")")
+        fi
     fi
 
     ui_info_screen "GPU - Temperature & Power" "${lines[@]}"
 }
 
 gpu_show_encoder() {
+    gpu_is_error_state && { gpu_show_error_context "GPU - Encoder/Decoder"; return; }
     local lines=()
     lines+=("$(ui_section_header "Encoder / Decoder")")
     lines+=("$(ui_kv_line "Encoder" "$(ui_cache_json gpu.json .encoder)")")
@@ -135,6 +187,7 @@ gpu_show_encoder() {
 }
 
 gpu_show_processes() {
+    gpu_is_error_state && { gpu_show_error_context "GPU - Processes"; return; }
     local lines=()
     lines+=("$(ui_section_header "GPU Processes")")
 
@@ -142,17 +195,17 @@ gpu_show_processes() {
     procs=$(ui_cache_json gpu.json .processes_raw)
     if [[ -n "${procs}" ]]; then
         lines+=("$(ui_color "${COLOR_LABEL}" "PID  Process  Memory")")
-        while IFS= read -r line; do
-            [[ -n "${line}" ]] && lines+=("${line}")
-        done <<< "${procs}"
-    else
-        if command -v nvidia-smi >/dev/null 2>&1; then
-            nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv 2>/dev/null | while IFS= read -r line; do
-                lines+=("${line}")
-            done
+        gpu_capture_command_lines lines "${procs}"
+    elif command -v nvidia-smi >/dev/null 2>&1; then
+        local smi_out
+        smi_out=$(nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv 2>/dev/null || true)
+        if [[ -n "${smi_out}" ]]; then
+            gpu_capture_command_lines lines "${smi_out}"
         else
             lines+=("$(ui_color "${COLOR_DIM}" "No GPU processes")")
         fi
+    else
+        lines+=("$(ui_color "${COLOR_DIM}" "No GPU processes")")
     fi
 
     ui_info_screen "GPU - Processes" "${lines[@]}"
@@ -161,6 +214,13 @@ gpu_show_processes() {
 gpu_show_full_query() {
     local lines=()
     lines+=("$(ui_section_header "nvidia-smi -q (cached)")")
+
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ Cached query empty — driver not responding")")
+        gpu_append_recovery_guide lines
+        ui_info_screen "GPU - nvidia-smi -q" "${lines[@]}"
+        return
+    fi
 
     local query
     query=$(ui_cache_json gpu.json .nvidia_smi_q)
@@ -192,6 +252,7 @@ gpu_show_full_query() {
 
 gpu_maintenance_menu() {
     local items=(
+        "Recovery Guide"
         "Restart Persistence Daemon"
         "Reload NVIDIA Modules"
         "Reconfigure Container Toolkit"
@@ -209,17 +270,35 @@ gpu_maintenance_menu() {
             quit) UI_RUNNING=0; return ;;
             select)
                 case "${UI_MENU_INDEX}" in
-                    0) gpu_restart_persistence ;;
-                    1) gpu_reload_modules ;;
-                    2) gpu_reconfigure_toolkit ;;
-                    3) gpu_verify_docker ;;
-                    4) gpu_dkms_status ;;
-                    5) gpu_driver_rebuild ;;
-                    6) return ;;
+                    0) gpu_show_recovery_guide ;;
+                    1) gpu_restart_persistence ;;
+                    2) gpu_reload_modules ;;
+                    3) gpu_reconfigure_toolkit ;;
+                    4) gpu_verify_docker ;;
+                    5) gpu_dkms_status ;;
+                    6) gpu_driver_rebuild ;;
+                    7) return ;;
                 esac
                 ;;
         esac
     done
+}
+
+gpu_show_recovery_guide() {
+    local lines=()
+    lines+=("$(ui_section_header "GPU Driver Recovery Guide")")
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU is currently in an error state")")
+        local err_msg
+        err_msg=$(ui_cache_json gpu.json .error_message)
+        [[ -n "${err_msg}" ]] && lines+=("$(ui_color "${COLOR_DIM}" "${err_msg}")")
+    else
+        lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ GPU responding — use this guide after kernel updates")")
+    fi
+    lines+=("")
+    lines+=("$(ui_color "${COLOR_DIM}" "Updating this dashboard does not rebuild NVIDIA drivers.")")
+    gpu_append_recovery_guide lines
+    ui_info_screen "GPU - Recovery Guide" "${lines[@]}"
 }
 
 gpu_restart_persistence() {
@@ -252,44 +331,155 @@ gpu_reconfigure_toolkit() {
 
 gpu_verify_docker() {
     local lines=()
+    local docker_out
+
     lines+=("$(ui_section_header "Docker GPU Verification")")
-    if ui_run_timeout 60 docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi 2>&1 | head -15 | while IFS= read -r line; do
-        lines+=("${line}")
-    done; then
-        lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ GPU test container succeeded")")
-    else
-        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU test failed or timed out")")
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "! GPU driver error — Docker GPU test will likely fail")")
+        lines+=("$(ui_color "${COLOR_DIM}" "Rebuild drivers first (Recovery Guide), reboot, then retry.")")
+        lines+=("")
     fi
+
+    docker_out=$(ui_run_timeout 60 docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi 2>&1 | head -15 || true)
+    if [[ -n "${docker_out}" ]]; then
+        gpu_capture_command_lines lines "${docker_out}"
+    else
+        lines+=("$(ui_color "${COLOR_DIM}" "No output from test container")")
+    fi
+
+    if echo "${docker_out}" | grep -qiE 'driver|nvidia-smi|cuda'; then
+        if echo "${docker_out}" | grep -qiE 'failed|error|couldn|not found'; then
+            lines+=("")
+            lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU test failed")")
+            gpu_append_recovery_guide lines
+        else
+            lines+=("")
+            lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ GPU test container succeeded")")
+        fi
+    else
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU test failed or timed out")")
+        if gpu_is_error_state; then
+            gpu_append_recovery_guide lines
+        fi
+    fi
+
     ui_info_screen "GPU - Docker Verify" "${lines[@]}"
 }
 
 gpu_dkms_status() {
     local lines=()
+    local dkms_out kernel
+
     lines+=("$(ui_section_header "DKMS Status")")
-    if command -v dkms >/dev/null 2>&1; then
-        dkms status 2>/dev/null | while IFS= read -r line; do
-            lines+=("${line}")
-        done
-    else
-        lines+=("$(ui_color "${COLOR_DIM}" "DKMS not installed")")
+    kernel=$(uname -r)
+    lines+=("$(ui_kv_line "Running kernel" "${kernel}")")
+    lines+=("")
+
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU driver not responding")")
+        lines+=("$(ui_color "${COLOR_DIM}" "DKMS output below still applies — nvidia should show 'installed' for ${kernel}.")")
+        lines+=("")
     fi
+
+    if ! command -v dkms >/dev/null 2>&1; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "DKMS is not installed")")
+        lines+=("$(ui_color "${COLOR_DIM}" "Install the NVIDIA driver package that provides DKMS support.")")
+        gpu_append_recovery_guide lines
+        ui_info_screen "GPU - DKMS" "${lines[@]}"
+        return
+    fi
+
+    ui_update_size
+    ui_clear
+    ui_draw_box_top "${UI_COLS}"
+    ui_draw_box_line "${UI_COLS}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "GPU - DKMS")" $((UI_COLS - 4)))"
+    ui_draw_separator "${UI_COLS}"
+    ui_draw_box_line "${UI_COLS}" ""
+    ui_draw_box_line "${UI_COLS}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Running dkms status (may take up to 30s)...")" $((UI_COLS - 4)))"
+    ui_draw_box_line "${UI_COLS}" ""
+    ui_draw_separator "${UI_COLS}"
+    ui_draw_box_bottom "${UI_COLS}"
+
+    dkms_out=$(ui_run_timeout 30 dkms status 2>&1 || echo "dkms status failed or timed out after 30s")
+
+    lines=()
+    lines+=("$(ui_section_header "DKMS Status")")
+    lines+=("$(ui_kv_line "Running kernel" "${kernel}")")
+    lines+=("")
+
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU driver not responding")")
+        lines+=("")
+    fi
+
+    if [[ -z "${dkms_out}" ]] || [[ "${dkms_out}" == "dkms status failed or timed out after 30s" ]]; then
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "DKMS returned no output")")
+        lines+=("$(ui_color "${COLOR_DIM}" "${dkms_out:-No modules registered or command produced no output}")")
+    elif ! gpu_capture_command_lines lines "${dkms_out}"; then
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "DKMS returned no module lines")")
+    fi
+
+    if echo "${dkms_out}" | grep -qi nvidia; then
+        if echo "${dkms_out}" | grep -q "${kernel}"; then
+            lines+=("")
+            lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ NVIDIA DKMS entry references current kernel")")
+        else
+            lines+=("")
+            lines+=("$(ui_color "${COLOR_STATUS_WARN}" "! NVIDIA module may not be built for ${kernel}")")
+            lines+=("$(ui_color "${COLOR_DIM}" "Run Driver Rebuild Helper, then reboot.")")
+        fi
+    else
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "! No NVIDIA module found in DKMS")")
+        lines+=("$(ui_color "${COLOR_DIM}" "Driver may not be installed or may not use DKMS.")")
+    fi
+
+    if gpu_is_error_state; then
+        gpu_append_recovery_guide lines
+    fi
+
     ui_info_screen "GPU - DKMS" "${lines[@]}"
 }
 
 gpu_driver_rebuild() {
     local lines=()
+    local rebuild_out
+
     lines+=("$(ui_section_header "Driver Rebuild Helper")")
-    lines+=("Run these commands as root if needed:")
-    lines+=("")
-    lines+=("  dkms autoinstall")
-    lines+=("  update-initramfs -u")
-    lines+=("  reboot")
-    lines+=("")
-    if ui_confirm "Run dkms autoinstall now?"; then
-        dkms autoinstall 2>&1 | head -20 | while IFS= read -r line; do
-            lines+=("${line}")
-        done
-        ui_message "GPU" "DKMS autoinstall completed"
+    if gpu_is_error_state; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ GPU driver not responding")")
+        lines+=("$(ui_color "${COLOR_DIM}" "This is the recommended fix after kernel or system updates.")")
+        lines+=("")
     fi
+    lines+=("This runs: dkms autoinstall")
+    lines+=("After it completes: update-initramfs -u && reboot")
+    lines+=("")
+
+    if ! command -v dkms >/dev/null 2>&1; then
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "DKMS is not installed — cannot rebuild automatically")")
+        gpu_append_recovery_guide lines
+        ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
+        return
+    fi
+
+    if ui_confirm "Run dkms autoinstall now? This may take several minutes."; then
+        rebuild_out=$(ui_run_timeout 300 dkms autoinstall 2>&1 | head -30 || echo "dkms autoinstall failed or timed out")
+        lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall output:")")
+        if [[ -n "${rebuild_out}" ]]; then
+            gpu_capture_command_lines lines "${rebuild_out}"
+        else
+            lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
+        fi
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_STATUS_WARN}" "Next: run 'update-initramfs -u' and reboot")")
+    else
+        lines+=("$(ui_color "${COLOR_DIM}" "Skipped — run manually when ready:")")
+        lines+=("  dkms autoinstall")
+        lines+=("  update-initramfs -u")
+        lines+=("  reboot")
+    fi
+
+    gpu_append_recovery_guide lines
     ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
 }
