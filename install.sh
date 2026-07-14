@@ -116,7 +116,7 @@ install_files() {
 
     log_info "Validating scripts..."
     if ! bash "${INSTALL_DIR}/validate.sh"; then
-        log_error "Validation failed — installation aborted"
+        log_error "Validation failed - installation aborted"
         exit 1
     fi
     chmod 755 "${INSTALL_DIR}"
@@ -167,8 +167,7 @@ UNINSTALLER
 install_systemd() {
     log_info "Installing cache daemon service..."
 
-    cp "${INSTALL_DIR}/systemd/homelab-dashboard-cache.service" \
-        "/etc/systemd/system/${SERVICE_NAME}.service"
+    cp "${INSTALL_DIR}/systemd/homelab-dashboard-cache.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}.service"

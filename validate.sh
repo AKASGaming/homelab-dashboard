@@ -29,7 +29,7 @@ check_file() {
     checked=$((checked + 1))
 }
 
-echo "TheaterNAS Control Center — validation"
+echo "TheaterNAS Control Center - validation"
 echo ""
 
 for f in main-menu install.sh update.sh uninstall.sh remote-install.sh validate.sh; do

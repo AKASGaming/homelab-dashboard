@@ -24,7 +24,9 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 cleanup() {
-    [[ -n "${TEMP_DIR}" && -d "${TEMP_DIR}" ]] && rm -rf "${TEMP_DIR}"
+    if [[ -n "${TEMP_DIR}" && -d "${TEMP_DIR}" ]]; then
+        rm -rf "${TEMP_DIR}"
+    fi
 }
 trap cleanup EXIT
 
@@ -46,15 +48,15 @@ get_source() {
     local source_dir="${1:-}"
 
     if [[ -n "${source_dir}" && -d "${source_dir}" ]]; then
-        echo "${source_dir}"
-        return
+        printf '%s\n' "${source_dir}"
+        return 0
     fi
 
     if [[ -d "${INSTALL_DIR}/.git" ]] && command -v git >/dev/null 2>&1; then
         log_info "Pulling updates from git..."
         git -C "${INSTALL_DIR}" pull --ff-only
-        echo "${INSTALL_DIR}"
-        return
+        printf '%s\n' "${INSTALL_DIR}"
+        return 0
     fi
 
     if ! command -v git >/dev/null 2>&1; then
@@ -65,7 +67,7 @@ get_source() {
     TEMP_DIR=$(mktemp -d)
     log_info "Cloning ${REPO_URL}..."
     git clone --depth 1 "${REPO_URL}" "${TEMP_DIR}"
-    echo "${TEMP_DIR}"
+    printf '%s\n' "${TEMP_DIR}"
 }
 
 strip_crlf() {
@@ -75,6 +77,35 @@ strip_crlf() {
         while IFS= read -r -d '' f; do
             sed -i 's/\r$//' "${f}" 2>/dev/null || true
         done
+}
+
+validate_scripts() {
+    local dir="$1"
+    if [[ ! -f "${dir}/validate.sh" ]]; then
+        log_warn "validate.sh not found, skipping validation"
+        return 0
+    fi
+    log_info "Validating scripts..."
+    bash "${dir}/validate.sh"
+}
+
+safe_install_file() {
+    local src="$1"
+    local dest="$2"
+    local tmp="${dest}.new"
+
+    cp -a "${src}" "${tmp}"
+    sed -i 's/\r$//' "${tmp}" 2>/dev/null || true
+
+    if [[ "${dest}" == *.sh || "${dest}" == */main-menu ]]; then
+        if ! bash -n "${tmp}"; then
+            log_error "Syntax check failed for ${dest}"
+            rm -f "${tmp}"
+            exit 1
+        fi
+    fi
+
+    mv -f "${tmp}" "${dest}"
 }
 
 update_files() {
@@ -87,20 +118,19 @@ update_files() {
         exit 1
     fi
 
-    # Update code files, preserve config and cache
     cp -a "${source_dir}/main-menu" "${INSTALL_DIR}/"
     cp -a "${source_dir}/VERSION" "${INSTALL_DIR}/"
     cp -a "${source_dir}/modules/"* "${INSTALL_DIR}/modules/"
     cp -a "${source_dir}/themes/"* "${INSTALL_DIR}/themes/"
     cp -a "${source_dir}/systemd/"* "${INSTALL_DIR}/systemd/"
     cp -a "${source_dir}/install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
-    cp -a "${source_dir}/update.sh" "${INSTALL_DIR}/"
     cp -a "${source_dir}/uninstall.sh" "${INSTALL_DIR}/"
     cp -a "${source_dir}/validate.sh" "${INSTALL_DIR}/" 2>/dev/null || true
 
+    safe_install_file "${source_dir}/update.sh" "${INSTALL_DIR}/update.sh"
+
     strip_crlf "${INSTALL_DIR}"
 
-    # Restore config
     if [[ -f "/tmp/homelab-dashboard-config.conf.bak" ]]; then
         cp -a "/tmp/homelab-dashboard-config.conf.bak" "${INSTALL_DIR}/config/config.conf"
         log_ok "Config preserved"
@@ -112,21 +142,14 @@ update_files() {
     chmod +x "${INSTALL_DIR}/uninstall.sh"
     chmod +x "${INSTALL_DIR}/validate.sh" 2>/dev/null || true
 
-    if [[ -f "${INSTALL_DIR}/validate.sh" ]]; then
-        log_info "Validating scripts..."
-        if ! bash "${INSTALL_DIR}/validate.sh"; then
-            log_error "Validation failed after update"
-            exit 1
-        fi
-    fi
+    validate_scripts "${INSTALL_DIR}"
 
     log_ok "Files updated"
 }
 
 restart_daemon() {
     log_info "Restarting cache daemon..."
-    cp "${INSTALL_DIR}/systemd/homelab-dashboard-cache.service" \
-        "/etc/systemd/system/${SERVICE_NAME}.service"
+    cp "${INSTALL_DIR}/systemd/homelab-dashboard-cache.service" "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload
     systemctl restart "${SERVICE_NAME}.service"
     log_ok "Cache daemon restarted"
@@ -135,9 +158,9 @@ restart_daemon() {
 main() {
     local source_dir="${1:-}"
 
-    echo ""
+    printf '\n'
     echo -e "${CYAN}TheaterNAS Control Center Updater${NC}"
-    echo ""
+    printf '\n'
 
     check_root
 
@@ -152,11 +175,13 @@ main() {
     restart_daemon
 
     local version="unknown"
-    [[ -f "${INSTALL_DIR}/VERSION" ]] && version=$(tr -d '[:space:]' < "${INSTALL_DIR}/VERSION")
+    if [[ -f "${INSTALL_DIR}/VERSION" ]]; then
+        version=$(tr -d '[:space:]' < "${INSTALL_DIR}/VERSION")
+    fi
 
-    echo ""
+    printf '\n'
     log_ok "Updated to v${version}"
-    echo ""
+    printf '\n'
 }
 
 main "$@"
