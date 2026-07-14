@@ -21,7 +21,7 @@ gpu_append_recovery_guide() {
     _out_lines+=("$(ui_color "${COLOR_STATUS_WARN}" "update-dashboard does NOT update NVIDIA drivers.")")
     _out_lines+=("$(ui_color "${COLOR_DIM}" "After a kernel or system update, run Maintenance in this order:")")
     _out_lines+=("  1) DKMS Status — confirm nvidia module matches kernel $(uname -r)")
-    _out_lines+=("  2) Driver Rebuild Helper — runs dkms autoinstall + initramfs")
+    _out_lines+=("  2) Driver Rebuild Helper — installs kernel headers, runs dkms autoinstall + initramfs")
     _out_lines+=("  3) Reboot the server")
     _out_lines+=("  4) Reload NVIDIA Modules — if GPU still errors after reboot")
     _out_lines+=("  5) Verify Docker GPU — if you use GPU containers")
@@ -642,7 +642,7 @@ gpu_dkms_status() {
 }
 
 gpu_driver_rebuild() {
-    local lines=() rebuild_out initramfs_out modprobe_out smi_after kernel confirm
+    local lines=() headers_out rebuild_out initramfs_out modprobe_out smi_after kernel confirm
     local rebuild_ok=0 smi_ok=0
 
     kernel=$(uname -r)
@@ -651,10 +651,11 @@ gpu_driver_rebuild() {
     lines+=("$(ui_kv_line "Target kernel" "${kernel}")")
     lines+=("")
     lines+=("$(ui_color "${COLOR_LABEL}" "This will run:")")
-    lines+=("  1) dkms autoinstall")
-    lines+=("  2) update-initramfs -u")
-    lines+=("  3) Reload NVIDIA kernel modules")
-    lines+=("  4) Refresh GPU cache + test nvidia-smi")
+    lines+=("  1) Check kernel headers — install only if missing")
+    lines+=("  2) dkms autoinstall")
+    lines+=("  3) update-initramfs -u")
+    lines+=("  4) Reload NVIDIA kernel modules")
+    lines+=("  5) Refresh GPU cache + test nvidia-smi")
     lines+=("")
     if gpu_is_error_state; then
         lines+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU is errored now — that is normal before rebuild.")")
@@ -682,42 +683,55 @@ gpu_driver_rebuild() {
 
     gpu_rebuild_errors_reset
 
-    gpu_run_step_with_logs "Step 1/4: Running dkms autoinstall (up to 5 minutes)" 300 rebuild_out dkms autoinstall
+    gpu_run_step_with_logs "Step 1/5: Checking kernel headers (linux-headers-${kernel})" 180 headers_out bash -c '
+        kernel=$(uname -r)
+        headers_dir="/lib/modules/${kernel}/build"
+        if [[ -d "${headers_dir}" && -f "${headers_dir}/Makefile" ]]; then
+            echo "Kernel headers already installed: ${headers_dir}"
+            echo "[skipped] apt install not needed"
+            exit 0
+        fi
+        echo "Kernel headers not found at ${headers_dir}"
+        echo "Installing linux-headers-${kernel}..."
+        sudo apt-get install -y "linux-headers-${kernel}"
+    '
+
+    gpu_run_step_with_logs "Step 2/5: Running dkms autoinstall (up to 5 minutes)" 300 rebuild_out dkms autoinstall
 
     if command -v update-initramfs >/dev/null 2>&1; then
-        gpu_run_step_with_logs "Step 2/4: Updating initramfs" 120 initramfs_out update-initramfs -u
+        gpu_run_step_with_logs "Step 3/5: Updating initramfs" 120 initramfs_out update-initramfs -u
     else
         initramfs_out="update-initramfs not found — skip manually if needed"
-        gpu_rebuild_collect_errors "Step 2/4: Updating initramfs" "${initramfs_out}" 1
-        gpu_run_manual_step "Step 2/4: Updating initramfs" \
+        gpu_rebuild_collect_errors "Step 3/5: Updating initramfs" "${initramfs_out}" 1
+        gpu_run_manual_step "Step 3/5: Updating initramfs" \
             "$(gpu_format_log_line "${initramfs_out}")" \
             "$(ui_color "${COLOR_STATUS_WARN}" "[skipped] update-initramfs not installed")"
         sleep 0.5
     fi
 
-    gpu_run_step_with_logs "Step 3/4: Reloading NVIDIA kernel modules" 60 modprobe_out bash -c '
+    gpu_run_step_with_logs "Step 4/5: Reloading NVIDIA kernel modules" 60 modprobe_out bash -c '
         echo "Removing nvidia_uvm, nvidia_drm, nvidia_modeset, nvidia..."
         modprobe -r nvidia_uvm nvidia_drm nvidia_modeset nvidia 2>&1
         echo "Loading nvidia, nvidia_modeset, nvidia_drm, nvidia_uvm..."
         modprobe nvidia nvidia_modeset nvidia_drm nvidia_uvm 2>&1
     '
 
-    local -a step4_logs=()
-    step4_logs+=("$(gpu_format_log_line "Refreshing dashboard GPU cache...")")
-    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
+    local -a step5_logs=()
+    step5_logs+=("$(gpu_format_log_line "Refreshing dashboard GPU cache...")")
+    gpu_run_manual_step "Step 5/5: Refreshing GPU status and testing nvidia-smi" "${step5_logs[@]}"
     gpu_refresh_cache
-    step4_logs+=("$(gpu_format_log_line "Running live nvidia-smi query...")")
-    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
+    step5_logs+=("$(gpu_format_log_line "Running live nvidia-smi query...")")
+    gpu_run_manual_step "Step 5/5: Refreshing GPU status and testing nvidia-smi" "${step5_logs[@]}"
     smi_after=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || true)
     if ui_gpu_is_error_value "${smi_after}"; then
-        gpu_rebuild_collect_errors "Step 4/4: nvidia-smi test" "${smi_after}" 1
-        step4_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
-        step4_logs+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU may still need a reboot")")
+        gpu_rebuild_collect_errors "Step 5/5: nvidia-smi test" "${smi_after}" 1
+        step5_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
+        step5_logs+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU may still need a reboot")")
     else
-        step4_logs+=("$(ui_color "${COLOR_STATUS_OK}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
-        step4_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
+        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
+        step5_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
     fi
-    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
+    gpu_run_manual_step "Step 5/5: Refreshing GPU status and testing nvidia-smi" "${step5_logs[@]}"
     sleep 0.5
 
     lines=()
@@ -727,6 +741,10 @@ gpu_driver_rebuild() {
     gpu_append_error_summary lines
 
     lines+=("$(ui_section_header "Full Step Output")")
+    lines+=("$(ui_color "${COLOR_LABEL}" "kernel headers:")")
+    gpu_capture_command_lines lines "${headers_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
+
+    lines+=("")
     lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall:")")
     if gpu_capture_command_lines lines "${rebuild_out}"; then
         if echo "${rebuild_out}" | grep -qiE 'built|install|already|done'; then
@@ -746,6 +764,12 @@ gpu_driver_rebuild() {
 
     lines+=("")
     lines+=("$(ui_section_header "Final Status")")
+    if [[ -d "/lib/modules/${kernel}/build" && -f "/lib/modules/${kernel}/build/Makefile" ]]; then
+        lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ Kernel headers present for ${kernel}")")
+    else
+        lines+=("$(ui_color "${COLOR_STATUS_ERR}" "✗ Kernel headers missing — DKMS cannot build modules")")
+    fi
+
     if (( rebuild_ok )); then
         lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ DKMS autoinstall appears to have completed")")
     elif echo "${rebuild_out}" | grep -qiE 'error|failed|cannot'; then
