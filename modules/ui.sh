@@ -921,7 +921,7 @@ ui_draw_scrollable_subscreen() {
 
     ui_draw_separator "${width}"
     local footer_text
-    footer_text="$(ui_color "${COLOR_DIM}" "↑↓ Scroll  Enter Return  Q Quit")"
+    footer_text="$(ui_color "${COLOR_DIM}" "↑↓ Scroll  Enter Return")"
     ui_draw_box_line "${width}" "$(ui_center "${footer_text}" $((width - 4)))"
     ui_draw_box_bottom "${width}"
 }

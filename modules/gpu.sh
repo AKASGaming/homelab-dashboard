@@ -53,6 +53,81 @@ gpu_capture_command_lines() {
     return 0
 }
 
+GPU_REBUILD_ERRORS=()
+
+gpu_rebuild_errors_reset() {
+    GPU_REBUILD_ERRORS=()
+}
+
+gpu_line_looks_like_error() {
+    local line="$1"
+    echo "${line}" | grep -qiE 'error|failed|cannot|fatal|not found|timed out|no such|unable|refused|missing'
+}
+
+gpu_line_looks_like_warning() {
+    local line="$1"
+    echo "${line}" | grep -qiE 'warn|warning|skipped'
+}
+
+gpu_rebuild_collect_errors() {
+    local step="$1"
+    local output="$2"
+    local exit_code="${3:-0}"
+    local line
+
+    if (( exit_code != 0 )); then
+        GPU_REBUILD_ERRORS+=("${step}: command exited with code ${exit_code}")
+    fi
+
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        if gpu_line_looks_like_error "${line}" || gpu_line_looks_like_warning "${line}"; then
+            GPU_REBUILD_ERRORS+=("${step}: ${line}")
+        fi
+    done <<< "${output}"
+}
+
+gpu_append_error_summary() {
+    local -n _out_lines=$1
+
+    _out_lines+=("$(ui_section_header "Errors Summary")")
+    if (( ${#GPU_REBUILD_ERRORS[@]} == 0 )); then
+        _out_lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ No errors or warnings recorded")")
+    else
+        _out_lines+=("$(ui_color "${COLOR_STATUS_ERR}" "${#GPU_REBUILD_ERRORS[@]} issue(s) found across all steps:")")
+        local err
+        for err in "${GPU_REBUILD_ERRORS[@]}"; do
+            if gpu_line_looks_like_warning "${err}"; then
+                _out_lines+=("$(ui_color "${COLOR_STATUS_WARN}" "  • $(ui_truncate "${err}" 96)")")
+            else
+                _out_lines+=("$(ui_color "${COLOR_STATUS_ERR}" "  • $(ui_truncate "${err}" 96)")")
+            fi
+        done
+    fi
+    _out_lines+=("")
+}
+
+gpu_show_scrollable_info() {
+    local title="$1"
+    shift
+    local lines=("$@")
+    local offset=0
+
+    if (( ${#lines[@]} == 0 )); then
+        lines+=("$(ui_color "${COLOR_DIM}" "No output")")
+    fi
+
+    while true; do
+        ui_draw_scrollable_subscreen "${title}" "${offset}" "${lines[@]}"
+        ui_read_key >/dev/null
+        case "${UI_LAST_KEY}" in
+            $'\x1b[A'|k|K) ((offset > 0)) && ((offset--)) || true ;;
+            $'\x1b[B'|j|J) ((offset < ${#lines[@]} - 1)) && ((offset++)) || true ;;
+            $'\r'|$'\n'|b|B|$'\x1b'|q|Q) return ;;
+        esac
+    done
+}
+
 gpu_format_log_line() {
     local line="$1"
     if echo "${line}" | grep -qiE 'error|failed|cannot|fatal|not found|timed out'; then
@@ -158,6 +233,7 @@ gpu_run_step_with_logs() {
     sleep 0.5
 
     printf -v "${__result_var}" '%s' "$(cat "${log_file}")"
+    gpu_rebuild_collect_errors "${step_label}" "$(cat "${log_file}")" "${exit_code}"
     rm -f "${log_file}"
     return "${exit_code}"
 }
@@ -604,12 +680,15 @@ gpu_driver_rebuild() {
         *) return ;;
     esac
 
+    gpu_rebuild_errors_reset
+
     gpu_run_step_with_logs "Step 1/4: Running dkms autoinstall (up to 5 minutes)" 300 rebuild_out dkms autoinstall
 
     if command -v update-initramfs >/dev/null 2>&1; then
         gpu_run_step_with_logs "Step 2/4: Updating initramfs" 120 initramfs_out update-initramfs -u
     else
         initramfs_out="update-initramfs not found — skip manually if needed"
+        gpu_rebuild_collect_errors "Step 2/4: Updating initramfs" "${initramfs_out}" 1
         gpu_run_manual_step "Step 2/4: Updating initramfs" \
             "$(gpu_format_log_line "${initramfs_out}")" \
             "$(ui_color "${COLOR_STATUS_WARN}" "[skipped] update-initramfs not installed")"
@@ -631,6 +710,7 @@ gpu_driver_rebuild() {
     gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
     smi_after=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || true)
     if ui_gpu_is_error_value "${smi_after}"; then
+        gpu_rebuild_collect_errors "Step 4/4: nvidia-smi test" "${smi_after}" 1
         step4_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
         step4_logs+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU may still need a reboot")")
     else
@@ -644,8 +724,10 @@ gpu_driver_rebuild() {
     lines+=("$(ui_section_header "Driver Rebuild Results")")
     lines+=("$(ui_kv_line "Kernel" "${kernel}")")
     lines+=("")
+    gpu_append_error_summary lines
 
-    lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall output:")")
+    lines+=("$(ui_section_header "Full Step Output")")
+    lines+=("$(ui_color "${COLOR_LABEL}" "dkms autoinstall:")")
     if gpu_capture_command_lines lines "${rebuild_out}"; then
         if echo "${rebuild_out}" | grep -qiE 'built|install|already|done'; then
             rebuild_ok=1
@@ -655,14 +737,15 @@ gpu_driver_rebuild() {
     fi
 
     lines+=("")
-    lines+=("$(ui_color "${COLOR_LABEL}" "update-initramfs output:")")
+    lines+=("$(ui_color "${COLOR_LABEL}" "update-initramfs:")")
     gpu_capture_command_lines lines "${initramfs_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
 
     lines+=("")
-    lines+=("$(ui_color "${COLOR_LABEL}" "modprobe reload output:")")
+    lines+=("$(ui_color "${COLOR_LABEL}" "modprobe reload:")")
     gpu_capture_command_lines lines "${modprobe_out:-}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
 
     lines+=("")
+    lines+=("$(ui_section_header "Final Status")")
     if (( rebuild_ok )); then
         lines+=("$(ui_color "${COLOR_STATUS_OK}" "✓ DKMS autoinstall appears to have completed")")
     elif echo "${rebuild_out}" | grep -qiE 'error|failed|cannot'; then
@@ -688,5 +771,10 @@ gpu_driver_rebuild() {
         lines+=("$(ui_color "${COLOR_DIM}" "The dashboard GPU error badge is expected until reboot.")")
     fi
 
-    ui_info_screen "GPU - Driver Rebuild" "${lines[@]}"
+    if (( ${#GPU_REBUILD_ERRORS[@]} > 0 )); then
+        lines+=("")
+        lines+=("$(ui_color "${COLOR_DIM}" "Scroll with ↑↓ to review errors and full output. Press Enter to return.")")
+    fi
+
+    gpu_show_scrollable_info "GPU - Driver Rebuild" "${lines[@]}"
 }
