@@ -40,7 +40,7 @@ gpu_module_menu() {
             b|B|$'\x1b') return 0 ;;
             q|Q) UI_RUNNING=0; return 0 ;;
             r|R) draw_mode="full"; continue ;;
-            ''|$'\n'|$'\r')
+            $'\r'|$'\n')
                 draw_mode="full"
                 case "${index}" in
                     0) gpu_show_overview ;;
@@ -226,7 +226,7 @@ gpu_maintenance_menu() {
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
             b|B|$'\x1b') return ;;
-            ''|$'\n'|$'\r')
+            $'\r'|$'\n')
                 draw_mode="full"
                 case "${index}" in
                     0) gpu_restart_persistence ;;

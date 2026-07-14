@@ -21,6 +21,10 @@ CACHE_DIR="${CACHE_DIR:-${INSTALL_DIR}/cache}"
 # shellcheck source=/dev/null
 source "${INSTALL_DIR}/modules/ui.sh"
 
+# Source dashboard loop
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/modules/dashboard.sh"
+
 # Source all modules
 for module in system docker network gpu media storage logs quickactions settings screensaver; do
     # shellcheck source=/dev/null
@@ -34,6 +38,7 @@ done
 dashboard_init() {
     ui_load_config "${INSTALL_DIR}/config/config.conf"
     ui_load_theme
+    ui_tty_init
     ui_save_screen
     mkdir -p "${CACHE_DIR}"
 
@@ -58,46 +63,6 @@ dashboard_open_module() {
         "Quick Actions") quickactions_module_menu ;;
         Settings)    settings_module_menu ;;
     esac
-}
-
-dashboard_main_loop() {
-    local items
-    read -ra items <<< "$(dashboard_get_menu_items)"
-    ui_set_menu_items "${items[@]}"
-
-    ui_draw_main_screen full
-
-    while (( UI_RUNNING )); do
-        if ui_wait_key "${UI_REFRESH_INTERVAL:-30}"; then
-            local action
-            ui_handle_menu_nav
-            action=$?
-
-            case "${action}" in
-                0)
-                    ui_draw_main_screen nav
-                    ;;
-                1)
-                    dashboard_open_module "${UI_MENU_ITEMS[$UI_MENU_INDEX]}"
-                    ui_draw_main_screen full
-                    ;;
-                2)
-                    break
-                    ;;
-                3)
-                    ui_draw_main_screen full
-                    ;;
-                4)
-                    screensaver_run
-                    ui_draw_main_screen full
-                    ;;
-                *)
-                    ;;
-            esac
-        else
-            ui_draw_main_screen status
-        fi
-    done
 }
 
 dashboard_main() {

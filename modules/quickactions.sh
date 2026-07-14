@@ -39,7 +39,7 @@ quickactions_module_menu() {
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
             b|B|$'\x1b') return 0 ;;
             q|Q) UI_RUNNING=0; return 0 ;;
-            ''|$'\n'|$'\r')
+            $'\r'|$'\n')
                 draw_mode="full"
                 case "${index}" in
                     0) quickactions_restart_containers ;;

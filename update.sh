@@ -96,6 +96,7 @@ update_files() {
     cp -a "${source_dir}/install.sh" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${source_dir}/update.sh" "${INSTALL_DIR}/"
     cp -a "${source_dir}/uninstall.sh" "${INSTALL_DIR}/"
+    cp -a "${source_dir}/validate.sh" "${INSTALL_DIR}/" 2>/dev/null || true
 
     strip_crlf "${INSTALL_DIR}"
 
@@ -109,6 +110,15 @@ update_files() {
     chmod +x "${INSTALL_DIR}/modules/"*.sh
     chmod +x "${INSTALL_DIR}/update.sh"
     chmod +x "${INSTALL_DIR}/uninstall.sh"
+    chmod +x "${INSTALL_DIR}/validate.sh" 2>/dev/null || true
+
+    if [[ -f "${INSTALL_DIR}/validate.sh" ]]; then
+        log_info "Validating scripts..."
+        if ! bash "${INSTALL_DIR}/validate.sh"; then
+            log_error "Validation failed after update"
+            exit 1
+        fi
+    fi
 
     log_ok "Files updated"
 }

@@ -37,7 +37,7 @@ system_show_menu() {
             r|R) continue ;;
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || index=0 ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || index=$((${#items[@]} - 1)) ;;
-            ''|$'\n'|$'\r')
+            $'\r'|$'\n')
                 if (( index == 7 )); then return 0; fi
                 ;;
         esac
@@ -94,7 +94,7 @@ system_module_menu() {
                     6) system_show_smart; continue ;;
                 esac
                 ;;
-            ''|$'\n'|$'\r')
+            $'\r'|$'\n')
                 draw_mode="full"
                 case "${index}" in
                     0) system_show_overview ;;

@@ -15,9 +15,20 @@ UI_MENU_INDEX=0
 UI_MENU_ITEMS=()
 UI_LAST_KEY=""
 UI_RUNNING=1
-UI_LAST_COLS=0
-UI_LAST_ROWS=0
-UI_MAIN_STATUS_ROW=3
+UI_SNAP_LOADED=0
+UI_SNAP_CPU=""
+UI_SNAP_RAM=""
+UI_SNAP_GPU=""
+UI_SNAP_DOCKER=""
+UI_SNAP_PIHOLE=""
+UI_SNAP_PLEX=""
+UI_SNAP_HOSTNAME=""
+UI_SNAP_UPTIME=""
+UI_SNAP_CONTAINERS=""
+UI_SNAP_GPU_TEMP=""
+UI_SNAP_LAN_IP=""
+UI_SNAP_TAILSCALE_IP=""
+UI_SNAP_ROOT_USAGE=""
 
 # =============================================================================
 # Configuration and theme loading
@@ -113,7 +124,29 @@ ui_restore_screen() {
 
 ui_cleanup() {
     ui_restore_screen
-    stty sane 2>/dev/null || true
+    ui_tty_restore
+}
+
+ui_tty_init() {
+    if [[ -t 0 ]]; then
+        # Save current stty settings once for restore
+        UI_STTY_SAVED=$(stty -g 2>/dev/null || echo "")
+        stty -echo -icanon min 1 time 0 2>/dev/null || true
+    fi
+}
+
+ui_tty_restore() {
+    if [[ -n "${UI_STTY_SAVED:-}" ]]; then
+        stty "${UI_STTY_SAVED}" 2>/dev/null || stty sane 2>/dev/null || true
+    else
+        stty sane 2>/dev/null || true
+    fi
+}
+
+ui_drain_input() {
+    while IFS= read -rsn1 -t 0.01 _ 2>/dev/null; do
+        :
+    done
 }
 
 # =============================================================================
@@ -328,12 +361,22 @@ ui_cache_stale_indicator() {
 
 ui_build_status_line() {
     local cpu ram gpu docker_status pihole_status plex_status
-    cpu=$(ui_cache_json "system.json" '.cpu_percent' "?")
-    ram=$(ui_cache_json "system.json" '.ram_percent' "?")
-    gpu=$(ui_cache_json "gpu.json" '.utilization' "?")
-    docker_status=$(ui_cache_json "docker.json" '.daemon_running' "false")
-    pihole_status=$(ui_cache_json "media.json" '.pihole.running' "false")
-    plex_status=$(ui_cache_json "media.json" '.plex.running' "false")
+
+    if (( UI_SNAP_LOADED )); then
+        cpu="${UI_SNAP_CPU}"
+        ram="${UI_SNAP_RAM}"
+        gpu="${UI_SNAP_GPU}"
+        docker_status="${UI_SNAP_DOCKER}"
+        pihole_status="${UI_SNAP_PIHOLE}"
+        plex_status="${UI_SNAP_PLEX}"
+    else
+        cpu=$(ui_cache_json "system.json" '.cpu_percent' "?")
+        ram=$(ui_cache_json "system.json" '.ram_percent' "?")
+        gpu=$(ui_cache_json "gpu.json" '.utilization' "?")
+        docker_status=$(ui_cache_json "docker.json" '.daemon_running' "false")
+        pihole_status=$(ui_cache_json "media.json" '.pihole.running' "false")
+        plex_status=$(ui_cache_json "media.json" '.plex.running' "false")
+    fi
 
     local status_line=""
     status_line+=$(ui_color "${COLOR_LABEL}" "CPU ")
@@ -353,6 +396,23 @@ ui_build_status_line() {
     printf '%s' "${status_line}"
 }
 
+ui_main_snapshot_load() {
+    UI_SNAP_CPU=$(ui_cache_json "system.json" '.cpu_percent' "?")
+    UI_SNAP_RAM=$(ui_cache_json "system.json" '.ram_percent' "?")
+    UI_SNAP_GPU=$(ui_cache_json "gpu.json" '.utilization' "?")
+    UI_SNAP_DOCKER=$(ui_cache_json "docker.json" '.daemon_running' "false")
+    UI_SNAP_PIHOLE=$(ui_cache_json "media.json" '.pihole.running' "false")
+    UI_SNAP_PLEX=$(ui_cache_json "media.json" '.plex.running' "false")
+    UI_SNAP_HOSTNAME=$(ui_cache_json "system.json" '.hostname' "unknown")
+    UI_SNAP_UPTIME=$(ui_cache_json "system.json" '.uptime_human' "unknown")
+    UI_SNAP_CONTAINERS=$(ui_cache_json "docker.json" '.container_count' "0")
+    UI_SNAP_GPU_TEMP=$(ui_cache_json "gpu.json" '.temperature' "N/A")
+    UI_SNAP_LAN_IP=$(ui_cache_json "network.json" '.lan_ip' "N/A")
+    UI_SNAP_TAILSCALE_IP=$(ui_cache_json "tailscale.json" '.self_ip' "N/A")
+    UI_SNAP_ROOT_USAGE=$(ui_cache_json "system.json" '.root_usage_percent' "N/A")
+    UI_SNAP_LOADED=1
+}
+
 ui_draw_header() {
     local width="${UI_COLS}"
     local title="${BANNER_TITLE:-THEATERNAS CONTROL CENTER}"
@@ -362,22 +422,6 @@ ui_draw_header() {
     ui_draw_separator "${width}"
     ui_draw_box_line "${width}" "$(ui_build_status_line)"
     ui_draw_separator "${width}"
-}
-
-ui_refresh_main_status() {
-    local width="${UI_COLS}"
-    local row="${UI_MAIN_STATUS_ROW}"
-    if command -v tput >/dev/null 2>&1; then
-        tput cup "${row}" 0 2>/dev/null || printf '\033[%d;1H' $((row + 1))
-    else
-        printf '\033[%d;1H' $((row + 1))
-    fi
-    ui_clear_line
-    ui_color "${COLOR_BORDER}" "│ "
-    ui_reset_attrs
-    ui_pad_right "$(ui_build_status_line)" $((width - 4))
-    ui_color "${COLOR_BORDER}" " │"
-    ui_reset_attrs
 }
 
 ui_draw_footer() {
@@ -460,13 +504,23 @@ ui_draw_main_details() {
     local detail_width=$((width - menu_width - 6))
 
     local hostname uptime containers gpu_temp lan_ip tailscale_ip root_usage
-    hostname=$(ui_cache_json "system.json" '.hostname' "unknown")
-    uptime=$(ui_cache_json "system.json" '.uptime_human' "unknown")
-    containers=$(ui_cache_json "docker.json" '.container_count' "0")
-    gpu_temp=$(ui_cache_json "gpu.json" '.temperature' "N/A")
-    lan_ip=$(ui_cache_json "network.json" '.lan_ip' "N/A")
-    tailscale_ip=$(ui_cache_json "tailscale.json" '.self_ip' "N/A")
-    root_usage=$(ui_cache_json "system.json" '.root_usage_percent' "N/A")
+    if (( UI_SNAP_LOADED )); then
+        hostname="${UI_SNAP_HOSTNAME}"
+        uptime="${UI_SNAP_UPTIME}"
+        containers="${UI_SNAP_CONTAINERS}"
+        gpu_temp="${UI_SNAP_GPU_TEMP}"
+        lan_ip="${UI_SNAP_LAN_IP}"
+        tailscale_ip="${UI_SNAP_TAILSCALE_IP}"
+        root_usage="${UI_SNAP_ROOT_USAGE}"
+    else
+        hostname=$(ui_cache_json "system.json" '.hostname' "unknown")
+        uptime=$(ui_cache_json "system.json" '.uptime_human' "unknown")
+        containers=$(ui_cache_json "docker.json" '.container_count' "0")
+        gpu_temp=$(ui_cache_json "gpu.json" '.temperature' "N/A")
+        lan_ip=$(ui_cache_json "network.json" '.lan_ip' "N/A")
+        tailscale_ip=$(ui_cache_json "tailscale.json" '.self_ip' "N/A")
+        root_usage=$(ui_cache_json "system.json" '.root_usage_percent' "N/A")
+    fi
 
     local details=()
     details+=("$(ui_color "${COLOR_LABEL}" "Hostname: ")$(ui_color "${COLOR_VALUE}" "${hostname}")")
@@ -515,36 +569,41 @@ ui_draw_main_details() {
 }
 
 ui_draw_main_screen() {
-    local mode="${1:-full}"
     ui_update_size
+    ui_clear
+    ui_draw_header
+    ui_draw_main_details
+    ui_draw_footer
+}
 
-    # Terminal resized — must full redraw
-    if [[ "${mode}" == "nav" || "${mode}" == "status" ]]; then
-        if (( UI_COLS != UI_LAST_COLS || UI_ROWS != UI_LAST_ROWS )); then
-            mode="full"
-        fi
-    fi
-
-    case "${mode}" in
-        full)
-            ui_clear
-            ui_draw_header
-            ui_draw_main_details
-            ui_draw_footer
+# Process a key on the main dashboard. Prints: nav, open, quit, refresh, screensaver, none
+ui_main_process_key() {
+    case "${UI_LAST_KEY}" in
+        $'\x1b[A'|k|K)
+            if (( UI_MENU_INDEX > 0 )); then ((UI_MENU_INDEX--)); fi
+            printf 'nav'
             ;;
-        nav)
-            ui_cursor_home
-            ui_draw_header
-            ui_draw_main_details
-            ui_draw_footer
+        $'\x1b[B'|j|J)
+            if (( UI_MENU_INDEX < ${#UI_MENU_ITEMS[@]} - 1 )); then ((UI_MENU_INDEX++)); fi
+            printf 'nav'
             ;;
-        status)
-            ui_refresh_main_status
+        q|Q)
+            printf 'quit'
+            ;;
+        r|R)
+            printf 'refresh'
+            ;;
+        s|S)
+            printf 'screensaver'
+            ;;
+        $'\r'|$'\n')
+            ui_drain_input
+            printf 'open'
+            ;;
+        *)
+            printf 'none'
             ;;
     esac
-
-    UI_LAST_COLS=${UI_COLS}
-    UI_LAST_ROWS=${UI_ROWS}
 }
 
 # =============================================================================
@@ -630,13 +689,28 @@ ui_draw_scrollable_subscreen() {
 ui_read_key() {
     local key
     IFS= read -rsn1 key 2>/dev/null || key=""
+    if [[ -z "${key}" ]]; then
+        UI_LAST_KEY=""
+        return 1
+    fi
     if [[ "${key}" == $'\x1b' ]]; then
-        local rest
-        read -rsn2 -t 0.1 rest 2>/dev/null || rest=""
+        local rest=""
+        local part
+        while IFS= read -rsn1 -t 0.05 part 2>/dev/null; do
+            rest+="${part}"
+            case "${rest}" in
+                '['?|'['?*) break ;;
+            esac
+            if ((${#rest} >= 8)); then
+                break
+            fi
+        done
         key+="${rest}"
+    elif [[ "${key}" == $'\r' ]]; then
+        ui_drain_input
     fi
     UI_LAST_KEY="${key}"
-    printf '%s' "${key}"
+    return 0
 }
 
 # Wait for a keypress. Returns 0 if a key was pressed, 1 on timeout.
@@ -649,27 +723,44 @@ ui_wait_key() {
             return 1
         fi
     else
-        IFS= read -rsn1 UI_LAST_KEY 2>/dev/null || UI_LAST_KEY=""
+        if ! IFS= read -rsn1 UI_LAST_KEY 2>/dev/null; then
+            return 1
+        fi
+    fi
+
+    if [[ -z "${UI_LAST_KEY}" ]]; then
+        return 1
     fi
 
     if [[ "${UI_LAST_KEY}" == $'\x1b' ]]; then
-        local rest
-        read -rsn2 -t 0.1 rest 2>/dev/null || rest=""
+        local rest=""
+        local part
+        while IFS= read -rsn1 -t 0.05 part 2>/dev/null; do
+            rest+="${part}"
+            case "${rest}" in
+                '['?|'['?*) break ;;
+            esac
+            if ((${#rest} >= 8)); then
+                break
+            fi
+        done
         UI_LAST_KEY+="${rest}"
+    elif [[ "${UI_LAST_KEY}" == $'\r' ]]; then
+        ui_drain_input
     fi
 
-    [[ -n "${UI_LAST_KEY}" ]]
+    return 0
 }
 
 ui_handle_menu_nav() {
     local key="${UI_LAST_KEY}"
     case "${key}" in
         $'\x1b[A'|k|K) # Up
-            ((UI_MENU_INDEX > 0)) && ((UI_MENU_INDEX--)) || true
+            if (( UI_MENU_INDEX > 0 )); then ((UI_MENU_INDEX--)); fi
             return 0
             ;;
         $'\x1b[B'|j|J) # Down
-            ((UI_MENU_INDEX < ${#UI_MENU_ITEMS[@]} - 1)) && ((UI_MENU_INDEX++)) || true
+            if (( UI_MENU_INDEX < ${#UI_MENU_ITEMS[@]} - 1 )); then ((UI_MENU_INDEX++)); fi
             return 0
             ;;
         q|Q)
@@ -681,8 +772,9 @@ ui_handle_menu_nav() {
         s|S)
             return 4
             ;;
-        ''|$'\n'|$'\r') # Enter
-            return 1
+        $'\r'|$'\n') # Enter — explicit codes only (not empty string)
+            ui_drain_input
+            return 10
             ;;
     esac
     return 99
@@ -806,7 +898,7 @@ ui_select_from_list() {
         case "${UI_LAST_KEY}" in
             $'\x1b[A'|k|K) ((index > 0)) && ((index--)) || true ;;
             $'\x1b[B'|j|J) ((index < ${#items[@]} - 1)) && ((index++)) || true ;;
-            ''|$'\n'|$'\r') result="${items[$index]}"; REPLY="${result}"; return 0 ;;
+            $'\r'|$'\n') result="${items[$index]}"; REPLY="${result}"; return 0 ;;
             b|B|$'\x1b') return 1 ;;
             q|Q) return 2 ;;
         esac

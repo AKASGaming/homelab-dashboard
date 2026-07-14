@@ -94,6 +94,7 @@ install_files() {
     cp -a "${SCRIPT_DIR}/main-menu" "${INSTALL_DIR}/"
     cp -a "${SCRIPT_DIR}/VERSION" "${INSTALL_DIR}/"
     cp -a "${SCRIPT_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true
+    cp -a "${SCRIPT_DIR}/validate.sh" "${INSTALL_DIR}/" 2>/dev/null || true
     cp -a "${SCRIPT_DIR}/config/"* "${INSTALL_DIR}/config/" 2>/dev/null || true
     cp -a "${SCRIPT_DIR}/themes/"* "${INSTALL_DIR}/themes/"
     cp -a "${SCRIPT_DIR}/modules/"* "${INSTALL_DIR}/modules/"
@@ -111,6 +112,13 @@ install_files() {
     # Set permissions
     chmod +x "${INSTALL_DIR}/main-menu"
     chmod +x "${INSTALL_DIR}/modules/"*.sh
+    chmod +x "${INSTALL_DIR}/validate.sh" 2>/dev/null || true
+
+    log_info "Validating scripts..."
+    if ! bash "${INSTALL_DIR}/validate.sh"; then
+        log_error "Validation failed — installation aborted"
+        exit 1
+    fi
     chmod 755 "${INSTALL_DIR}"
     chmod 755 "${INSTALL_DIR}/cache"
     chmod 644 "${INSTALL_DIR}/config/config.conf"
