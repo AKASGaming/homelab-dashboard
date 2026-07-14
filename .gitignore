@@ -1,0 +1,15 @@
+# Cache files (runtime)
+cache/*
+!cache/.gitkeep
+
+# Backup files
+*.backup.*
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*~

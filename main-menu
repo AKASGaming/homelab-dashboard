@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# =============================================================================
+# main-menu - TheaterNAS Control Center entry point
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${SCRIPT_DIR}"
+
+# Allow override via environment
+INSTALL_DIR="${HOMELAB_DASHBOARD_DIR:-${INSTALL_DIR}}"
+
+# Source configuration
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/config/config.conf"
+INSTALL_DIR="${INSTALL_DIR:-/opt/homelab-dashboard}"
+CACHE_DIR="${CACHE_DIR:-${INSTALL_DIR}/cache}"
+
+# Source UI framework
+# shellcheck source=/dev/null
+source "${INSTALL_DIR}/modules/ui.sh"
+
+# Source all modules
+for module in system docker network gpu media storage logs quickactions settings screensaver; do
+    # shellcheck source=/dev/null
+    source "${INSTALL_DIR}/modules/${module}.sh"
+done
+
+# =============================================================================
+# Main dashboard loop
+# =============================================================================
+
+dashboard_init() {
+    ui_load_config "${INSTALL_DIR}/config/config.conf"
+    ui_load_theme
+    ui_save_screen
+    mkdir -p "${CACHE_DIR}"
+
+    # Trap cleanup
+    trap 'ui_cleanup; exit 0' INT TERM EXIT
+}
+
+dashboard_get_menu_items() {
+    local items=("System" "Docker" "Network" "Media" "Storage" "Logs" "Quick Actions" "Settings")
+    echo "${items[@]}"
+}
+
+dashboard_open_module() {
+    local module="$1"
+    case "${module}" in
+        System)      system_module_menu ;;
+        Docker)      docker_module_menu ;;
+        Network)     network_module_menu ;;
+        Media)       media_module_menu ;;
+        Storage)     storage_module_menu ;;
+        Logs)        logs_module_menu ;;
+        "Quick Actions") quickactions_module_menu ;;
+        Settings)    settings_module_menu ;;
+    esac
+}
+
+dashboard_main_loop() {
+    local items
+    read -ra items <<< "$(dashboard_get_menu_items)"
+    ui_set_menu_items "${items[@]}"
+
+    while (( UI_RUNNING )); do
+        ui_draw_main_screen
+
+        ui_read_key >/dev/null
+        local action
+        ui_handle_menu_nav
+        action=$?
+
+        case "${action}" in
+            0) ;; # navigated
+            1) # enter
+                dashboard_open_module "${UI_MENU_ITEMS[$UI_MENU_INDEX]}"
+                ;;
+            2) # quit
+                break
+                ;;
+            3) # refresh - just redraw from cache
+                ;;
+            4) # screensaver
+                screensaver_run
+                ;;
+        esac
+
+        sleep "${UI_REFRESH_INTERVAL:-2}" 2>/dev/null || sleep 1
+    done
+}
+
+dashboard_main() {
+    # Require bash
+    if [[ -z "${BASH_VERSION:-}" ]]; then
+        echo "TheaterNAS Control Center requires Bash" >&2
+        exit 1
+    fi
+
+    # Require minimum terminal size
+    ui_update_size
+    if (( UI_COLS < 60 || UI_ROWS < 20 )); then
+        echo "Terminal too small. Minimum 60x20 required." >&2
+        exit 1
+    fi
+
+    dashboard_init
+    dashboard_main_loop
+    ui_cleanup
+}
+
+dashboard_main "$@"

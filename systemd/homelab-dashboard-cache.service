@@ -1,0 +1,18 @@
+[Unit]
+Description=TheaterNAS Control Center Cache Daemon
+Documentation=https://github.com/AKASGaming/homelab-dashboard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/homelab-dashboard/modules/cache-daemon.sh daemon
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=HOMELAB_DASHBOARD_DIR=/opt/homelab-dashboard
+
+[Install]
+WantedBy=multi-user.target
