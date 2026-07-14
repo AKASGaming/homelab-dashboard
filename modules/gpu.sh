@@ -53,20 +53,121 @@ gpu_capture_command_lines() {
     return 0
 }
 
-gpu_show_progress() {
+gpu_format_log_line() {
+    local line="$1"
+    if echo "${line}" | grep -qiE 'error|failed|cannot|fatal|not found|timed out'; then
+        ui_color "${COLOR_STATUS_ERR}" "$(ui_truncate "${line}" 96)"
+    elif echo "${line}" | grep -qiE 'built|install|already|done|success|complete|ok'; then
+        ui_color "${COLOR_STATUS_OK}" "$(ui_truncate "${line}" 96)"
+    elif echo "${line}" | grep -qiE 'warn|warning'; then
+        ui_color "${COLOR_STATUS_WARN}" "$(ui_truncate "${line}" 96)"
+    else
+        ui_color "${COLOR_DIM}" "$(ui_truncate "${line}" 96)"
+    fi
+}
+
+gpu_show_progress_screen() {
     local title="$1"
-    local message="$2"
+    local step_msg="$2"
+    shift 2
+    local log_lines=("$@")
+    local width max_logs i start shown
 
     ui_update_size
+    width="${UI_COLS}"
+    max_logs=$((UI_ROWS - 10))
+    if (( max_logs < 4 )); then max_logs=4; fi
+
     ui_clear
-    ui_draw_box_top "${UI_COLS}"
-    ui_draw_box_line "${UI_COLS}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((UI_COLS - 4)))"
-    ui_draw_separator "${UI_COLS}"
-    ui_draw_box_line "${UI_COLS}" ""
-    ui_draw_box_line "${UI_COLS}" "$(ui_center "${message}" $((UI_COLS - 4)))"
-    ui_draw_box_line "${UI_COLS}" ""
-    ui_draw_separator "${UI_COLS}"
-    ui_draw_box_bottom "${UI_COLS}"
+    ui_draw_box_top "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_HEADER}" "${title}")" $((width - 4)))"
+    ui_draw_separator "${width}"
+    ui_draw_box_line "${width}" "$(ui_color "${COLOR_LABEL}" "${step_msg}")"
+    ui_draw_separator "${width}"
+
+    start=0
+    shown=0
+    if (( ${#log_lines[@]} > max_logs )); then
+        start=$((${#log_lines[@]} - max_logs))
+        ui_draw_box_line "${width}" "$(ui_color "${COLOR_DIM}" "  ... earlier log lines hidden ...")"
+        ((shown++))
+    fi
+
+    for ((i = start; i < ${#log_lines[@]}; i++)); do
+        ui_draw_box_line "${width}" "  ${log_lines[$i]}"
+        ((shown++))
+    done
+
+    for ((i = shown; i < max_logs; i++)); do
+        ui_draw_box_line "${width}" ""
+    done
+
+    ui_draw_separator "${width}"
+    ui_draw_box_line "${width}" "$(ui_center "$(ui_color "${COLOR_DIM}" "Working...")" $((width - 4)))"
+    ui_draw_box_bottom "${width}"
+}
+
+gpu_run_step_with_logs() {
+    local step_label="$1"
+    local timeout_secs="$2"
+    local __result_var="$3"
+    shift 3
+    local -a live_logs=()
+    local log_file line last_line=0 pid exit_code
+
+    log_file=$(mktemp "${TMPDIR:-/tmp}/gpu-rebuild.XXXXXX" 2>/dev/null || mktemp -t gpu-rebuild.XXXXXX)
+    : > "${log_file}"
+
+    gpu_show_progress_screen "GPU - Driver Rebuild" "${step_label}" "${live_logs[@]}"
+
+    if command -v timeout >/dev/null 2>&1; then
+        ( timeout "${timeout_secs}" "$@" 2>&1 | tee -a "${log_file}" ) &
+    else
+        ( "$@" 2>&1 | tee -a "${log_file}" ) &
+    fi
+    pid=$!
+
+    while kill -0 "${pid}" 2>/dev/null; do
+        mapfile -t _new_lines < <(awk "NR>${last_line}" "${log_file}" 2>/dev/null)
+        if (( ${#_new_lines[@]} > 0 )); then
+            for line in "${_new_lines[@]}"; do
+                [[ -z "${line}" ]] && continue
+                live_logs+=("$(gpu_format_log_line "${line}")")
+            done
+            last_line=$(wc -l < "${log_file}" 2>/dev/null | tr -d ' ')
+            gpu_show_progress_screen "GPU - Driver Rebuild" "${step_label}" "${live_logs[@]}"
+        fi
+        sleep 0.2
+    done
+
+    wait "${pid}" 2>/dev/null
+    exit_code=$?
+
+    mapfile -t _new_lines < <(awk "NR>${last_line}" "${log_file}" 2>/dev/null)
+    for line in "${_new_lines[@]}"; do
+        [[ -z "${line}" ]] && continue
+        live_logs+=("$(gpu_format_log_line "${line}")")
+    done
+
+    if (( exit_code != 0 )); then
+        live_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "[exit ${exit_code}] command finished with errors")")
+    else
+        live_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
+    fi
+    gpu_show_progress_screen "GPU - Driver Rebuild" "${step_label}" "${live_logs[@]}"
+    sleep 0.5
+
+    printf -v "${__result_var}" '%s' "$(cat "${log_file}")"
+    rm -f "${log_file}"
+    return "${exit_code}"
+}
+
+gpu_run_manual_step() {
+    local step_label="$1"
+    shift
+    local -a live_logs=("$@")
+
+    gpu_show_progress_screen "GPU - Driver Rebuild" "${step_label}" "${live_logs[@]}"
 }
 
 gpu_refresh_cache() {
@@ -465,7 +566,7 @@ gpu_dkms_status() {
 }
 
 gpu_driver_rebuild() {
-    local lines=() rebuild_out initramfs_out smi_after kernel confirm
+    local lines=() rebuild_out initramfs_out modprobe_out smi_after kernel confirm
     local rebuild_ok=0 smi_ok=0
 
     kernel=$(uname -r)
@@ -503,24 +604,41 @@ gpu_driver_rebuild() {
         *) return ;;
     esac
 
-    gpu_show_progress "GPU - Driver Rebuild" "Step 1/4: Running dkms autoinstall (up to 5 minutes)..."
-    rebuild_out=$(ui_run_timeout 300 dkms autoinstall 2>&1 || echo "[exit $?] dkms autoinstall failed or timed out")
+    gpu_run_step_with_logs "Step 1/4: Running dkms autoinstall (up to 5 minutes)" 300 rebuild_out dkms autoinstall
 
-    gpu_show_progress "GPU - Driver Rebuild" "Step 2/4: Updating initramfs..."
     if command -v update-initramfs >/dev/null 2>&1; then
-        initramfs_out=$(update-initramfs -u 2>&1 || echo "[exit $?] update-initramfs failed")
+        gpu_run_step_with_logs "Step 2/4: Updating initramfs" 120 initramfs_out update-initramfs -u
     else
         initramfs_out="update-initramfs not found — skip manually if needed"
+        gpu_run_manual_step "Step 2/4: Updating initramfs" \
+            "$(gpu_format_log_line "${initramfs_out}")" \
+            "$(ui_color "${COLOR_STATUS_WARN}" "[skipped] update-initramfs not installed")"
+        sleep 0.5
     fi
 
-    gpu_show_progress "GPU - Driver Rebuild" "Step 3/4: Reloading NVIDIA kernel modules..."
-    modprobe -r nvidia_uvm nvidia_drm nvidia_modeset nvidia 2>/dev/null || true
-    modprobe nvidia nvidia_modeset nvidia_drm nvidia_uvm 2>/dev/null || true
+    gpu_run_step_with_logs "Step 3/4: Reloading NVIDIA kernel modules" 60 modprobe_out bash -c '
+        echo "Removing nvidia_uvm, nvidia_drm, nvidia_modeset, nvidia..."
+        modprobe -r nvidia_uvm nvidia_drm nvidia_modeset nvidia 2>&1
+        echo "Loading nvidia, nvidia_modeset, nvidia_drm, nvidia_uvm..."
+        modprobe nvidia nvidia_modeset nvidia_drm nvidia_uvm 2>&1
+    '
 
-    gpu_show_progress "GPU - Driver Rebuild" "Step 4/4: Refreshing GPU status..."
+    local -a step4_logs=()
+    step4_logs+=("$(gpu_format_log_line "Refreshing dashboard GPU cache...")")
+    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
     gpu_refresh_cache
-
+    step4_logs+=("$(gpu_format_log_line "Running live nvidia-smi query...")")
+    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
     smi_after=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1 | head -1 || true)
+    if ui_gpu_is_error_value "${smi_after}"; then
+        step4_logs+=("$(ui_color "${COLOR_STATUS_ERR}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
+        step4_logs+=("$(ui_color "${COLOR_STATUS_WARN}" "GPU may still need a reboot")")
+    else
+        step4_logs+=("$(ui_color "${COLOR_STATUS_OK}" "nvidia-smi: $(ui_truncate "${smi_after}" 80)")")
+        step4_logs+=("$(ui_color "${COLOR_STATUS_OK}" "[exit 0] step completed")")
+    fi
+    gpu_run_manual_step "Step 4/4: Refreshing GPU status and testing nvidia-smi" "${step4_logs[@]}"
+    sleep 0.5
 
     lines=()
     lines+=("$(ui_section_header "Driver Rebuild Results")")
@@ -539,6 +657,10 @@ gpu_driver_rebuild() {
     lines+=("")
     lines+=("$(ui_color "${COLOR_LABEL}" "update-initramfs output:")")
     gpu_capture_command_lines lines "${initramfs_out}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
+
+    lines+=("")
+    lines+=("$(ui_color "${COLOR_LABEL}" "modprobe reload output:")")
+    gpu_capture_command_lines lines "${modprobe_out:-}" || lines+=("$(ui_color "${COLOR_DIM}" "No output captured")")
 
     lines+=("")
     if (( rebuild_ok )); then
